@@ -1,23 +1,25 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { NomadDocument, ChatMessage, DocType, Reminder, RiskAnalysis } from "../types";
 
-// Safety check for process.env
+// Vite replaces process.env.API_KEY with the actual string literal at build time.
+// We access it directly.
 const getApiKey = () => {
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-        return process.env.API_KEY;
-    }
-    // Fallback if window.process is polyfilled but empty
     // @ts-ignore
-    if (typeof window !== 'undefined' && window.process && window.process.env && window.process.env.API_KEY) {
-        // @ts-ignore
-        return window.process.env.API_KEY;
-    }
-    return '';
+    return process.env.API_KEY || '';
 };
 
-const API_KEY = getApiKey();
+// Singleton instance
+let aiClient: GoogleGenAI | null = null;
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const getAI = () => {
+    if (!aiClient) {
+        const apiKey = getApiKey();
+        // Initialize with a placeholder if missing to prevent constructor crash, 
+        // calls will simply fail with 401 later which can be handled UI-side.
+        aiClient = new GoogleGenAI({ apiKey: apiKey || 'MISSING_API_KEY' });
+    }
+    return aiClient;
+};
 
 // --- Helpers ---
 
@@ -39,12 +41,12 @@ const cosineSimilarity = (vecA: number[], vecB: number[]) => {
 export const generateEmbedding = async (text: string): Promise<number[]> => {
     if (!text || !text.trim()) return [];
     try {
-        // Fix: Use 'contents' (plural) and pass string directly to avoid batch/structure mismatch errors
+        const ai = getAI();
         const response = await ai.models.embedContent({
             model: "text-embedding-004",
             contents: text
         });
-        return response.embedding?.values || [];
+        return response.embeddings?.[0]?.values || [];
     } catch (e) {
         console.error("Embedding generation failed", e);
         return [];
@@ -62,6 +64,7 @@ export const analyzeDocument = async (
     isText: boolean
 ): Promise<any> => {
     try {
+        const ai = getAI();
         // Construct prompts based on input type
         const systemPrompt = `Analyze this travel document. Extract the following information in JSON format:
         - title: A short, descriptive title (e.g., "Visa for Thailand", "Flight to Bali", "Apartment Lease").
@@ -160,6 +163,7 @@ export const analyzeDocument = async (
 
 export const performRiskAnalysis = async (document: NomadDocument): Promise<RiskAnalysis> => {
     try {
+        const ai = getAI();
         let parts = [];
 
         if (document.isTextBased) {
@@ -236,6 +240,7 @@ export const chatWithDocuments = async (
     chatHistory: ChatMessage[]
 ): Promise<string> => {
     try {
+        const ai = getAI();
         const queryEmbedding = await generateEmbedding(query);
 
         // Filter out docs without embeddings and perform similarity search

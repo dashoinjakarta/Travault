@@ -4,10 +4,14 @@ import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore
 const pdfLib = pdfjsLib.default || pdfjsLib;
 
-// Set the worker source. 
+// Set the worker source safely.
 // Use specific stable version 3.11.174 to match import map
-if (pdfLib.GlobalWorkerOptions) {
-    pdfLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+try {
+    if (pdfLib && pdfLib.GlobalWorkerOptions) {
+        pdfLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    }
+} catch (e) {
+    console.warn("Failed to initialize PDF Worker. PDF processing may fail.", e);
 }
 
 /**
