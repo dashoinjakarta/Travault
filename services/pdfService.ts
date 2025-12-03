@@ -1,8 +1,14 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
+// Handle module structure differences in CDN environments (ESM vs CJS wrapper)
+// @ts-ignore
+const pdfLib = pdfjsLib.default || pdfjsLib;
+
 // Set the worker source. 
-// Note: In a real bundler environment, this is handled differently, but for CDN usage:
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://aistudiocdn.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+// Use specific stable version 3.11.174 to match import map
+if (pdfLib.GlobalWorkerOptions) {
+    pdfLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
 
 /**
  * Converts the first page of a PDF file to a Base64 image string (PNG).
@@ -16,11 +22,12 @@ export const convertPdfToImage = async (file: File): Promise<string> => {
             try {
                 const typedarray = new Uint8Array(this.result as ArrayBuffer);
 
-                // Load the PDF document
-                const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                // Load the PDF document using the resolved library object
+                const loadingTask = pdfLib.getDocument(typedarray);
+                const pdfDocument = await loadingTask.promise;
                 
                 // Get the first page
-                const page = await pdf.getPage(1);
+                const page = await pdfDocument.getPage(1);
 
                 // Determine scale (we want a decent resolution for OCR)
                 // 1.5 scale is usually a good balance between quality and size
