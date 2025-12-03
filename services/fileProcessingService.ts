@@ -95,9 +95,16 @@ export const processFile = async (file: File): Promise<ProcessedFile> => {
 
 export const uploadFileToStorage = async (file: File): Promise<string | null> => {
     try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+            throw new Error("User must be logged in to upload files.");
+        }
+
         const fileExt = file.name.split('.').pop();
         const fileName = `${uuidv4()}.${fileExt}`;
-        const filePath = `${fileName}`;
+        // Store in a folder named after the user ID for security
+        const filePath = `${user.id}/${fileName}`;
 
         const { error } = await supabase.storage.from('documents').upload(filePath, file);
         
@@ -106,8 +113,8 @@ export const uploadFileToStorage = async (file: File): Promise<string | null> =>
             return null;
         }
 
-        const { data } = supabase.storage.from('documents').getPublicUrl(filePath);
-        return data.publicUrl;
+        // Return the storage path (not the public URL) so we can generate signed URLs later
+        return filePath;
     } catch (e) {
         console.error("Upload exception:", e);
         return null;

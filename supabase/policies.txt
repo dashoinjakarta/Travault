@@ -1,0 +1,86 @@
+-- SECURITY & RLS SETUP FOR TRAVAULT
+-- Run this entire script in your Supabase SQL Editor to secure the application.
+
+-- 1. SCHEMA UPDATES
+-- Ensure the reminders table has a user_id column to allow RLS ownership for manual reminders
+alter table reminders add column if not exists user_id uuid references auth.users(id);
+
+-- 2. ENABLE ROW LEVEL SECURITY
+-- This effectively blocks all access unless a policy grants it.
+alter table documents enable row level security;
+alter table reminders enable row level security;
+alter table document_chunks enable row level security;
+
+-- 3. CLEANUP OLD POLICIES
+-- Drop insecure permissive policies if they exist from the prototype phase.
+drop policy if exists "Enable all access for all users" on documents;
+drop policy if exists "Enable all access for all users" on reminders;
+drop policy if exists "Enable all access for all users" on document_chunks;
+
+-- 4. DEFINE NEW POLICIES
+
+-- DOCUMENTS: Users can only see/edit their own documents
+create policy "Users can CRUD their own documents"
+on documents for all
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+-- REMINDERS: Users can only see/edit their own reminders (manual or doc-linked)
+create policy "Users can CRUD their own reminders"
+on reminders for all
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+-- DOCUMENT CHUNKS: Users can access chunks if they own the parent document
+-- This uses a subquery to check ownership of the parent document
+create policy "Users can CRUD their own document chunks"
+on document_chunks for all
+using (
+  document_id in (
+    select id from documents where user_id = auth.uid()
+  )
+)
+with check (
+  document_id in (
+    select id from documents where user_id = auth.uid()
+  )
+);
+
+-- 5. STORAGE POLICIES
+-- We are locking down the storage bucket.
+-- Users can only access files inside a folder named with their user ID.
+
+-- Cleanup old storage policies
+drop policy if exists "Public Access" on storage.objects;
+drop policy if exists "Public Upload" on storage.objects;
+drop policy if exists "Public Delete" on storage.objects;
+drop policy if exists "Authenticated users can upload" on storage.objects;
+drop policy if exists "Authenticated users can view" on storage.objects;
+drop policy if exists "Authenticated users can delete" on storage.objects;
+
+-- Insert Policy: Allow upload only to 'documents' bucket in 'user_id/*' path
+create policy "Users can upload their own files"
+on storage.objects for insert
+to authenticated
+with check (
+  bucket_id = 'documents' and
+  (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- Select Policy: Allow viewing only files in 'user_id/*' path
+create policy "Users can view their own files"
+on storage.objects for select
+to authenticated
+using (
+  bucket_id = 'documents' and
+  (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- Delete Policy: Allow deleting only files in 'user_id/*' path
+create policy "Users can delete their own files"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'documents' and
+  (storage.foldername(name))[1] = auth.uid()::text
+);

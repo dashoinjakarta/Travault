@@ -4,6 +4,7 @@ import { Card, Badge, Button, Spinner } from './UI';
 import { UploadCloud, FileText, Trash2, Calendar, Search, ShieldAlert, CheckCircle, AlertTriangle, FileType } from 'lucide-react';
 import { analyzeDocument, performRiskAnalysis } from '../services/geminiService';
 import { processFile } from '../services/fileProcessingService';
+import { deleteDocumentFromSupabase } from '../services/storageService';
 import { v4 as uuidv4 } from 'uuid';
 
 interface DocumentManagerProps {
@@ -16,6 +17,8 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ documents, set
     const [analyzingRiskId, setAnalyzingRiskId] = useState<string | null>(null);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+    
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -59,9 +62,24 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ documents, set
         }
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         if(confirm("Are you sure you want to delete this document?")) {
-            setDocuments(prev => prev.filter(d => d.id !== id));
+            setDeletingIds(prev => new Set(prev).add(id));
+            try {
+                // Delete from Backend
+                await deleteDocumentFromSupabase(id);
+                // Update Frontend State
+                setDocuments(prev => prev.filter(d => d.id !== id));
+            } catch (error) {
+                console.error(error);
+                alert("Failed to delete document from server. Please try again.");
+            } finally {
+                setDeletingIds(prev => {
+                    const next = new Set(prev);
+                    next.delete(id);
+                    return next;
+                });
+            }
         }
     };
 
@@ -95,24 +113,24 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ documents, set
 
     return (
         <div className="space-y-6 pb-20">
-            <h1 className="text-2xl font-bold text-slate-100">My Documents</h1>
+            <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">My Documents</h1>
 
             {/* Upload Area */}
             <div 
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${isUploading ? 'bg-slate-800 border-blue-500' : 'bg-slate-800/30 border-slate-700 hover:border-blue-500 hover:bg-slate-800/50'}`}
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${isUploading ? 'bg-slate-100 dark:bg-slate-800 border-blue-500' : 'bg-white dark:bg-slate-800/30 border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
             >
                 {isUploading ? (
                     <div className="flex flex-col items-center justify-center py-4">
                         <Spinner />
-                        <p className="mt-4 text-blue-400 font-medium">Analyzing with Gemini AI...</p>
-                        <p className="text-sm text-slate-400">Extracting metadata & generating embeddings</p>
+                        <p className="mt-4 text-blue-600 dark:text-blue-400 font-medium">Analyzing with Gemini AI...</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">Extracting metadata & generating embeddings</p>
                     </div>
                 ) : (
                     <div className="flex flex-col items-center justify-center cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                        <div className="w-12 h-12 bg-slate-700 text-blue-400 rounded-full flex items-center justify-center mb-3">
+                        <div className="w-12 h-12 bg-slate-100 dark:bg-slate-700 text-blue-500 dark:text-blue-400 rounded-full flex items-center justify-center mb-3">
                             <UploadCloud className="w-6 h-6" />
                         </div>
-                        <h3 className="font-semibold text-slate-200">Click to upload</h3>
+                        <h3 className="font-semibold text-slate-800 dark:text-slate-200">Click to upload</h3>
                         <p className="text-sm text-slate-500 mt-1">Supports PDF, DOCX, JPG, PNG, TXT (Max 5MB)</p>
                         <input 
                             type="file" 
@@ -128,11 +146,11 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ documents, set
 
             {/* Search */}
             <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
                 <input 
                     type="text" 
                     placeholder="Search documents..." 
-                    className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500"
+                    className="w-full pl-10 pr-4 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -144,13 +162,21 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ documents, set
                     <Card key={doc.id} className="flex flex-col justify-between group">
                         <div>
                             <div className="flex justify-between items-start mb-2">
-                                <Badge color="bg-indigo-900/50 text-indigo-400 border border-indigo-700/30">{doc.extractedData.type}</Badge>
-                                <button onClick={(e) => { e.stopPropagation(); handleDelete(doc.id); }} className="text-slate-500 hover:text-rose-500 transition-colors">
-                                    <Trash2 className="w-4 h-4" />
+                                <Badge color="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700/30">{doc.extractedData.type}</Badge>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); handleDelete(doc.id); }} 
+                                    className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                                    disabled={deletingIds.has(doc.id)}
+                                >
+                                    {deletingIds.has(doc.id) ? (
+                                        <div className="w-4 h-4 border-2 border-rose-500/30 border-t-rose-500 rounded-full animate-spin"></div>
+                                    ) : (
+                                        <Trash2 className="w-4 h-4" />
+                                    )}
                                 </button>
                             </div>
-                            <h3 className="font-bold text-slate-200 mb-1">{doc.extractedData.title}</h3>
-                            <p className="text-sm text-slate-400 line-clamp-2">{doc.extractedData.summary}</p>
+                            <h3 className="font-bold text-slate-800 dark:text-slate-200 mb-1">{doc.extractedData.title}</h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2">{doc.extractedData.summary}</p>
                             
                             {(doc.extractedData.expiryDate || doc.extractedData.eventDate) && (
                                 <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
@@ -160,23 +186,23 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ documents, set
                             )}
 
                             {/* Risk Analysis Section */}
-                            <div className="mt-4 pt-4 border-t border-slate-700/50">
+                            <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700/50">
                                 {doc.extractedData.riskAnalysis ? (
-                                    <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700">
+                                    <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
                                         <div className="flex justify-between items-center mb-2">
-                                            <span className="text-xs font-bold text-slate-300">Executive Scan</span>
+                                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Executive Scan</span>
                                             <Badge color={
-                                                doc.extractedData.riskAnalysis.score > 80 ? 'bg-emerald-900/50 text-emerald-400' : 
-                                                doc.extractedData.riskAnalysis.score > 50 ? 'bg-amber-900/50 text-amber-400' : 'bg-rose-900/50 text-rose-400'
+                                                doc.extractedData.riskAnalysis.score > 80 ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400' : 
+                                                doc.extractedData.riskAnalysis.score > 50 ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400' : 'bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-400'
                                             }>
                                                 Score: {doc.extractedData.riskAnalysis.score}/100
                                             </Badge>
                                         </div>
-                                        <p className="text-xs text-slate-400 mb-2">{doc.extractedData.riskAnalysis.summary}</p>
+                                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">{doc.extractedData.riskAnalysis.summary}</p>
                                         {doc.extractedData.riskAnalysis.factors.length > 0 && (
                                             <div className="space-y-1">
                                                 {doc.extractedData.riskAnalysis.factors.slice(0, 2).map((factor, idx) => (
-                                                    <div key={idx} className="flex items-start gap-1.5 text-[10px] text-slate-300">
+                                                    <div key={idx} className="flex items-start gap-1.5 text-[10px] text-slate-600 dark:text-slate-300">
                                                         <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" />
                                                         <span>{factor.description}</span>
                                                     </div>
@@ -202,7 +228,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ documents, set
                         </div>
                         
                         {doc.isTextBased ? (
-                             <div className="mt-4 h-32 w-full bg-slate-900 rounded-lg border border-slate-700 flex flex-col items-center justify-center text-slate-600 relative overflow-hidden group-hover:bg-slate-800 transition-colors">
+                             <div className="mt-4 h-32 w-full bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 relative overflow-hidden group-hover:bg-slate-200 dark:group-hover:bg-slate-800 transition-colors">
                                 <FileType className="w-10 h-10 mb-2" />
                                 <span className="text-xs uppercase font-bold">{doc.fileName.split('.').pop()}</span>
                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -210,11 +236,11 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ documents, set
                                 </div>
                             </div>
                         ) : (
-                            <div className="mt-4 h-32 w-full bg-slate-900 rounded-lg overflow-hidden border border-slate-700 relative group/image">
+                            <div className="mt-4 h-32 w-full bg-slate-100 dark:bg-slate-900 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 relative group/image">
                                 {doc.previewImage ? (
-                                     <img src={doc.previewImage} alt="Preview" className="w-full h-full object-cover opacity-60 group-hover/image:opacity-90 transition-opacity" />
+                                     <img src={doc.previewImage} alt="Preview" className="w-full h-full object-cover opacity-80 dark:opacity-60 group-hover/image:opacity-100 dark:group-hover/image:opacity-90 transition-opacity" />
                                 ) : (
-                                     <img src={doc.fileData} alt="Preview" className="w-full h-full object-cover opacity-60 group-hover/image:opacity-90 transition-opacity" />
+                                     <img src={doc.fileData} alt="Preview" className="w-full h-full object-cover opacity-80 dark:opacity-60 group-hover/image:opacity-100 dark:group-hover/image:opacity-90 transition-opacity" />
                                 )}
                                 
                                 {doc.mimeType === 'image/png' && doc.fileName.toLowerCase().endsWith('.pdf') && (

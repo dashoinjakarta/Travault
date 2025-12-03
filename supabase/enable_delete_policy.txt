@@ -1,0 +1,5 @@
+-- Enable Delete permissions for the 'documents' storage bucket
+-- Run this in your Supabase SQL Editor to allow the app to delete files.
+
+create policy "Public Delete" on storage.objects for delete
+using ( bucket_id = 'documents' );

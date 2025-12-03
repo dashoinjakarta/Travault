@@ -5,14 +5,14 @@ export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { 
     variant = 'primary', 
     ...props 
 }) => {
-    const baseStyles = "px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900";
+    const baseStyles = "px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-100 dark:focus:ring-offset-slate-900";
     
     const variants = {
         primary: "bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500",
         blue: "bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500",
-        secondary: "bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 focus:ring-slate-500",
+        secondary: "bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 focus:ring-slate-500 shadow-sm",
         danger: "bg-rose-500 hover:bg-rose-600 text-white focus:ring-rose-500",
-        ghost: "bg-transparent hover:bg-slate-800 text-slate-400"
+        ghost: "bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
     };
 
     return (
@@ -21,16 +21,19 @@ export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { 
 };
 
 export const Card: React.FC<{ children: React.ReactNode; className?: string; onClick?: () => void }> = ({ children, className = '', onClick }) => (
-    <div onClick={onClick} className={`bg-slate-800 rounded-xl shadow-lg border border-slate-700/50 p-5 ${className} ${onClick ? 'cursor-pointer hover:border-blue-500/50 transition-colors' : ''}`}>
+    <div onClick={onClick} className={`bg-white dark:bg-slate-800 rounded-xl shadow-sm dark:shadow-lg border border-slate-200 dark:border-slate-700/50 p-5 ${className} ${onClick ? 'cursor-pointer hover:border-blue-500 dark:hover:border-blue-500/50 transition-colors' : ''}`}>
         {children}
     </div>
 );
 
-export const Badge: React.FC<{ children: React.ReactNode; color?: string }> = ({ children, color = 'bg-slate-700 text-slate-300' }) => (
-    <span className={`px-2.5 py-1 rounded-md text-xs font-medium ${color}`}>
-        {children}
-    </span>
-);
+export const Badge: React.FC<{ children: React.ReactNode; color?: string }> = ({ children, color }) => {
+    const defaultColor = 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300';
+    return (
+        <span className={`px-2.5 py-1 rounded-md text-xs font-medium ${color || defaultColor}`}>
+            {children}
+        </span>
+    );
+};
 
 export const Spinner: React.FC = () => (
     <svg className="animate-spin h-5 w-5 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

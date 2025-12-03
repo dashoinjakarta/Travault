@@ -1,7 +1,21 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { NomadDocument, ChatMessage, DocType, Reminder, RiskAnalysis } from "../types";
 
-const API_KEY = process.env.API_KEY || '';
+// Safety check for process.env
+const getApiKey = () => {
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+        return process.env.API_KEY;
+    }
+    // Fallback if window.process is polyfilled but empty
+    // @ts-ignore
+    if (typeof window !== 'undefined' && window.process && window.process.env && window.process.env.API_KEY) {
+        // @ts-ignore
+        return window.process.env.API_KEY;
+    }
+    return '';
+};
+
+const API_KEY = getApiKey();
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
@@ -25,10 +39,10 @@ const cosineSimilarity = (vecA: number[], vecB: number[]) => {
 export const generateEmbedding = async (text: string): Promise<number[]> => {
     if (!text || !text.trim()) return [];
     try {
-        // Fix: Use 'content' (singular) for single embedding request
+        // Fix: Use 'contents' (plural) and pass string directly to avoid batch/structure mismatch errors
         const response = await ai.models.embedContent({
             model: "text-embedding-004",
-            content: { parts: [{ text }] }
+            contents: text
         });
         return response.embedding?.values || [];
     } catch (e) {
