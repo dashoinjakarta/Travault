@@ -29,41 +29,33 @@
           scrollbar-width: none;  /* Firefox */
       }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react/": "https://esm.sh/react@18.2.0/",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "react-router": "https://esm.sh/react-router@6.22.3?external=react,react-dom",
-    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?external=react,react-dom",
-    "@remix-run/router": "https://esm.sh/@remix-run/router@1.15.3",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "date-fns": "https://esm.sh/date-fns@3.6.0",
-    "lucide-react": "https://esm.sh/lucide-react@0.363.0?external=react",
-    "uuid": "https://esm.sh/uuid@9.0.1",
-    "pdfjs-dist": "https://esm.sh/pdfjs-dist@3.11.174",
-    "pdfjs-dist/": "https://esm.sh/pdfjs-dist@3.11.174/",
-    "mammoth": "https://esm.sh/mammoth@1.7.2",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.42.0",
-    "path": "https://aistudiocdn.com/path@^0.12.7",
-    "vite": "https://aistudiocdn.com/vite@^7.2.6",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
-  }
-}
-</script>
 <script>
-  // Polyfill process for browser environment to avoid ReferenceError
-  window.process = { env: { API_KEY: '' } };
-  
   // Initialize theme
   if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
     document.documentElement.classList.add('dark')
   } else {
     document.documentElement.classList.remove('dark')
   }
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "date-fns": "https://aistudiocdn.com/date-fns@^4.1.0",
+    "uuid": "https://aistudiocdn.com/uuid@^13.0.0",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.10.0",
+    "pdfjs-dist": "https://aistudiocdn.com/pdfjs-dist@^5.4.449",
+    "mammoth": "https://aistudiocdn.com/mammoth@^1.11.0",
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.86.0",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
+    "vite": "https://aistudiocdn.com/vite@^7.2.6",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+  }
+}
 </script>
 </head>
   <body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-50 transition-colors duration-200">

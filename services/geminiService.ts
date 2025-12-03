@@ -4,7 +4,6 @@ import { NomadDocument, ChatMessage, DocType, Reminder, RiskAnalysis } from "../
 // Vite replaces process.env.API_KEY with the actual string literal at build time.
 // We access it directly.
 const getApiKey = () => {
-    // @ts-ignore
     return process.env.API_KEY || '';
 };
 
@@ -133,83 +132,126 @@ export const analyzeDocument = async (
                                     title: { type: Type.STRING },
                                     date: { type: Type.STRING },
                                     time: { type: Type.STRING, nullable: true },
-                                    priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] }
-                                },
-                                required: ['title', 'date', 'priority']
+                                    priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] },
+                                }
                             } 
                         }
-                    },
-                    required: ["title", "type", "summary", "reminders"]
+                    }
                 }
             }
         });
 
-        const text = response.text;
-        if (!text) throw new Error("No response from AI");
-        
-        const data = JSON.parse(text);
-        
-        // Generate embedding
-        const embeddingText = `${data.title} ${data.type} ${data.summary}`;
-        const embedding = await generateEmbedding(embeddingText);
-        
-        return { ...data, embedding };
+        // Use the proper property to get text from the response object
+        const text = response.text || "{}";
+        return JSON.parse(text);
 
-    } catch (error) {
-        console.error("Analysis failed:", error);
-        throw error;
+    } catch (e) {
+        console.error("Gemini Analysis Failed", e);
+        throw e;
     }
 };
 
-export const performRiskAnalysis = async (document: NomadDocument): Promise<RiskAnalysis> => {
+/**
+ * Chat with your documents using RAG (Retrieval Augmented Generation).
+ * We will perform a simple in-memory search here for the prototype, 
+ * but in production this uses Supabase Vector Store.
+ */
+export const chatWithDocuments = async (
+    query: string, 
+    documents: NomadDocument[],
+    reminders: Reminder[],
+    history: ChatMessage[]
+): Promise<string> => {
     try {
         const ai = getAI();
-        let parts = [];
-
-        if (document.isTextBased) {
-            // Text based analysis
-            parts = [
-                { text: `You are an Executive Risk Analyst for a digital nomad. Review this document content (${document.extractedData.type}) for potential risks.` },
-                { text: document.fileData || '' } // fileData contains raw text for text docs
-            ];
-        } else {
-            // Image based analysis
-            const base64Data = document.fileData?.split(',')[1] || '';
-            const mimeType = document.mimeType || 'image/png';
-            
-            parts = [
-                {
-                    inlineData: {
-                        data: base64Data,
-                        mimeType: mimeType
-                    }
-                },
-                {
-                    text: `You are an Executive Risk Analyst for a digital nomad. Review this document (${document.extractedData.type}) for potential risks, strict cancellations, hidden fees, or non-standard clauses.`
-                }
-            ];
-        }
         
-        // Add common schema instruction
-        parts.push({
-            text: `Return JSON:
-            - score: A safety score from 0 (Dangerous) to 100 (Safe).
-            - summary: A one sentence executive summary of the risk profile.
-            - factors: A list of risk factors found (risk, severity, description).`
+        // 1. Prepare Context from Documents (Simple Client-Side RAG)
+        // In a real app, we would embed the query and search Supabase vector store
+        const relevantDocs = documents.slice(0, 5).map(d => 
+            `Title: ${d.extractedData.title} (${d.extractedData.type})
+             Date: ${d.extractedData.eventDate || d.extractedData.expiryDate || 'N/A'}
+             Summary: ${d.extractedData.summary}`
+        ).join('\n---\n');
+
+        const relevantReminders = reminders.slice(0, 5).map(r => 
+            `Reminder: ${r.title} due on ${r.date} (${r.priority} Priority)`
+        ).join('\n');
+
+        const context = `
+        USER DOCUMENTS:
+        ${relevantDocs}
+
+        USER REMINDERS:
+        ${relevantReminders}
+        `;
+
+        // 2. Chat
+        // We use the model directly with context instead of chat session for RAG simplicity here
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `
+            System: You are Travault, a helpful AI assistant for digital nomads. 
+            Use the provided context to answer the user's question. 
+            If you don't know the answer based on the context, say so politely.
+            Keep answers concise and helpful.
+
+            Context:
+            ${context}
+
+            Chat History:
+            ${history.map(h => `${h.role}: ${h.text}`).join('\n')}
+
+            User: ${query}
+            `,
         });
+
+        return response.text || "I couldn't generate a response.";
+
+    } catch (e) {
+        console.error("Chat Failed", e);
+        return "Sorry, I'm having trouble connecting to the AI right now.";
+    }
+};
+
+/**
+ * Perform a risk analysis on a document.
+ */
+export const performRiskAnalysis = async (doc: NomadDocument): Promise<RiskAnalysis> => {
+    try {
+        const ai = getAI();
+        const prompt = `
+        Analyze this document for potential risks for a digital nomad/traveler.
+        Document: ${doc.extractedData.title} (${doc.extractedData.type})
+        Summary: ${doc.extractedData.summary}
+        Date: ${doc.extractedData.eventDate || doc.extractedData.expiryDate}
+
+        Identify:
+        1. Ambiguities or missing critical info.
+        2. Date conflicts or tight deadlines (assuming today is ${new Date().toISOString().split('T')[0]}).
+        3. Compliance issues (visa expiry, insurance coverage gaps).
+
+        Return JSON:
+        {
+            "score": number (0-100, 100 is safest),
+            "summary": "Short risk summary",
+            "factors": [
+                { "risk": "Title", "severity": "High"|"Medium"|"Low", "description": "Details" }
+            ]
+        }
+        `;
 
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: { parts },
+            contents: prompt,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        score: { type: Type.NUMBER },
+                        score: { type: Type.INTEGER },
                         summary: { type: Type.STRING },
-                        factors: {
-                            type: Type.ARRAY,
+                        factors: { 
+                            type: Type.ARRAY, 
                             items: {
                                 type: Type.OBJECT,
                                 properties: {
@@ -217,90 +259,22 @@ export const performRiskAnalysis = async (document: NomadDocument): Promise<Risk
                                     severity: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] },
                                     description: { type: Type.STRING }
                                 }
-                            }
+                            } 
                         }
                     }
                 }
             }
         });
 
-        const text = response.text;
-        if (!text) throw new Error("No response");
+        const text = response.text || "{}";
         return JSON.parse(text);
-    } catch (error) {
-        console.error("Risk analysis failed", error);
-        throw error;
-    }
-};
 
-export const chatWithDocuments = async (
-    query: string, 
-    documents: NomadDocument[], 
-    manualReminders: Reminder[],
-    chatHistory: ChatMessage[]
-): Promise<string> => {
-    try {
-        const ai = getAI();
-        const queryEmbedding = await generateEmbedding(query);
-
-        // Filter out docs without embeddings and perform similarity search
-        const rankedDocs = documents
-            .filter(doc => doc.extractedData.embedding && doc.extractedData.embedding.length > 0)
-            .map(doc => {
-                const score = cosineSimilarity(queryEmbedding, doc.extractedData.embedding!);
-                return { doc, score };
-            })
-            .sort((a, b) => b.score - a.score);
-
-        const relevantDocs = rankedDocs.slice(0, 5).map(d => d.doc);
-
-        const docContext = relevantDocs.map(d => 
-            `ID: ${d.id}
-             Title: ${d.extractedData.title}
-             Type: ${d.extractedData.type}
-             Expiry: ${d.extractedData.expiryDate || 'N/A'}
-             Event Date: ${d.extractedData.eventDate || 'N/A'}
-             Summary: ${d.extractedData.summary}
-             Risk Analysis: ${d.extractedData.riskAnalysis ? JSON.stringify(d.extractedData.riskAnalysis) : 'Not performed'}
-             Reminders: ${JSON.stringify(d.processedReminders || d.extractedData.reminders)}`
-        ).join('\n---\n');
-
-        const reminderContext = manualReminders.length > 0 ? 
-            `MANUAL REMINDERS:\n${manualReminders.map(r => 
-                `- [${r.priority}] ${r.title} due on ${r.date} ${r.time || ''}`
-            ).join('\n')}` : '';
-
-        const systemInstruction = `You are Travault AI, a smart assistant for digital nomads. 
-        You have access to the user's uploaded travel documents (filtered by relevance) and manual reminders. 
-        
-        Answer specific questions about dates, deadlines, and details.
-        If asked about risks, refer to the Risk Analysis if available.
-        If a document is expired or expiring soon, warn the user.
-        Keep answers concise, professional, and helpful.
-        
-        RELEVANT DOCUMENTS:
-        ${docContext}
-        
-        ${reminderContext}`;
-
-        const historyParts = chatHistory.slice(-6).map(msg => ({
-            role: msg.role,
-            parts: [{ text: msg.text }]
-        }));
-
-        const chat = ai.chats.create({
-            model: 'gemini-2.5-flash',
-            history: historyParts,
-            config: {
-                systemInstruction: systemInstruction,
-            }
-        });
-
-        const result = await chat.sendMessage({ message: query });
-        return result.text || "I couldn't process that response.";
-
-    } catch (error) {
-        console.error("Chat failed:", error);
-        return "Sorry, I'm having trouble connecting to the Travault assistant right now.";
+    } catch (e) {
+        console.error("Risk Analysis Failed", e);
+        return {
+            score: 0,
+            summary: "Analysis failed",
+            factors: []
+        };
     }
 };

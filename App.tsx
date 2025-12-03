@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { NomadDocument, ViewState, ChatMessage, Reminder } from './types';
 import { Dashboard } from './components/Dashboard';
 import { ChatAssistant } from './components/ChatAssistant';
@@ -194,7 +194,7 @@ const ProtectedRoute = () => {
 const App: React.FC = () => {
     return (
         <AuthProvider>
-            <BrowserRouter>
+            <HashRouter>
                 {/* Theme toggle effect runs inside components, but we want a global init */}
                 <Routes>
                     <Route path="/login" element={<><div className="absolute top-4 right-4"><ThemeToggle /></div><Login /></>} />
@@ -204,7 +204,7 @@ const App: React.FC = () => {
                         <Route path="/*" element={<AuthenticatedApp />} />
                     </Route>
                 </Routes>
-            </BrowserRouter>
+            </HashRouter>
         </AuthProvider>
     );
 };
