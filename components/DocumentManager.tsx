@@ -232,7 +232,14 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ documents, set
                                 <FileType className="w-10 h-10 mb-2" />
                                 <span className="text-xs uppercase font-bold">{doc.fileName.split('.').pop()}</span>
                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <span className="text-xs text-white">Preview Not Available</span>
+                                    <Button variant="secondary" className="text-xs scale-90" onClick={() => {
+                                         const win = window.open();
+                                         if (win) {
+                                            if (doc.previewImage) {
+                                                 win.document.write('<iframe src="' + doc.previewImage + '" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>');
+                                            }
+                                         }
+                                    }}>View Document</Button>
                                 </div>
                             </div>
                         ) : (

@@ -54,10 +54,13 @@ export const processFile = async (file: File): Promise<ProcessedFile> => {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => {
+                const textContent = reader.result as string;
+                const preview = `data:text/plain;base64,${btoa(textContent)}`;
                 resolve({
-                    content: reader.result as string,
+                    content: textContent,
                     mimeType: 'text/plain',
                     isText: true,
+                    preview: preview,
                     file: file
                 });
             };
@@ -74,10 +77,12 @@ export const processFile = async (file: File): Promise<ProcessedFile> => {
                 try {
                     const arrayBuffer = event.target?.result as ArrayBuffer;
                     const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+                    const preview = `data:text/plain;base64,${btoa(result.value)}`;
                     resolve({
                         content: result.value,
                         mimeType: 'text/plain', // Treat extracted text as plain text for AI
                         isText: true,
+                        preview: preview,
                         file: file
                     });
                 } catch (e) {
