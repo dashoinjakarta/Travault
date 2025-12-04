@@ -70,4 +70,15 @@ export interface ChatMessage {
     timestamp: number;
 }
 
+export interface UserProfile {
+    id: string;
+    first_name: string;
+    last_name: string;
+    nationality: string;
+    language: string;
+    phone_country_code: string;
+    phone_local_number: string;
+    email: string;
+}
+
 export type ViewState = 'dashboard' | 'documents' | 'reminders' | 'settings';

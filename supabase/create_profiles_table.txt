@@ -1,0 +1,66 @@
+
+-- 1. CREATE PROFILES TABLE
+-- Run this in Supabase SQL Editor to store detailed user information.
+-- NOTE: If the table already exists, you may need to drop it first or use ALTER statements.
+
+drop table if exists public.profiles cascade;
+
+create table public.profiles (
+  id uuid not null references auth.users(id) on delete cascade primary key,
+  first_name text,
+  last_name text,
+  nationality text,
+  language text,
+  phone_country_code text,
+  phone_local_number text,
+  email text,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- 2. ENABLE ROW LEVEL SECURITY
+alter table public.profiles enable row level security;
+
+create policy "Users can view their own profile" 
+on public.profiles for select 
+using (auth.uid() = id);
+
+create policy "Users can update their own profile" 
+on public.profiles for update 
+using (auth.uid() = id);
+
+-- 3. SETUP TRIGGER FOR NEW USERS
+-- This function automatically creates a profile entry when a user signs up via Supabase Auth.
+-- It pulls the data from the 'raw_user_meta_data' sent by the frontend.
+
+create or replace function public.handle_new_user() 
+returns trigger as $$
+begin
+  insert into public.profiles (
+    id, 
+    first_name, 
+    last_name, 
+    nationality, 
+    language, 
+    phone_country_code, 
+    phone_local_number, 
+    email
+  )
+  values (
+    new.id, 
+    new.raw_user_meta_data->>'first_name', 
+    new.raw_user_meta_data->>'last_name',
+    new.raw_user_meta_data->>'nationality',
+    new.raw_user_meta_data->>'language',
+    new.raw_user_meta_data->>'phone_country_code',
+    new.raw_user_meta_data->>'phone_local_number',
+    new.email
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+-- Trigger execution
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();

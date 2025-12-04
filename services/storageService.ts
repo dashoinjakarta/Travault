@@ -2,6 +2,25 @@
 import { NomadDocument, ChatMessage, Reminder, DocType } from "../types";
 import { supabase } from "./supabase";
 
+// --- Helpers ---
+
+const getMimeType = (fileName: string): string => {
+    if (!fileName) return 'application/octet-stream';
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    
+    switch (ext) {
+        case 'pdf': return 'application/pdf';
+        case 'jpg':
+        case 'jpeg': return 'image/jpeg';
+        case 'png': return 'image/png';
+        case 'webp': return 'image/webp';
+        case 'txt': return 'text/plain';
+        case 'docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        case 'doc': return 'application/msword';
+        default: return 'application/octet-stream';
+    }
+};
+
 // --- Documents ---
 
 /**
@@ -119,11 +138,21 @@ export const loadDocumentsFromSupabase = async (): Promise<NomadDocument[]> => {
                 if (signedData) fileUrl = signedData.signedUrl;
             }
 
+            const fileName = d.title || 'document';
+            const mimeType = getMimeType(d.file_path || fileName);
+            
+            // Determine if it's text based (PDF, Docx, TXT) vs Image based
+            // This helps the UI decide whether to show an iframe or an img tag
+            const isTextBased = mimeType === 'application/pdf' || 
+                                mimeType === 'text/plain' || 
+                                mimeType.includes('wordprocessingml') ||
+                                mimeType.includes('msword');
+
             return {
                 id: d.id,
-                fileName: d.title,
+                fileName: fileName,
                 fileData: fileUrl, 
-                mimeType: 'application/octet-stream',
+                mimeType: mimeType,
                 uploadDate: d.created_at,
                 contentHash: d.content_hash,
                 extractedData: {
@@ -142,7 +171,7 @@ export const loadDocumentsFromSupabase = async (): Promise<NomadDocument[]> => {
                     source: r.source,
                     docId: d.id
                 })),
-                isTextBased: d.extracted_data?.type === DocType.CONTRACT 
+                isTextBased: isTextBased
             };
         }));
 

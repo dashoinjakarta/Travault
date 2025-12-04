@@ -2,7 +2,7 @@
 import React from 'react';
 import { NomadDocument, DocType } from '../../types';
 import { Card, Badge } from '../UI';
-import { Search, Edit2, Trash2, FileType, ImageOff } from 'lucide-react';
+import { Search, Edit2, Trash2, FileType, ImageOff, Eye } from 'lucide-react';
 import { getIconBgColor, getIconForType } from '../../utils/uiHelpers';
 
 interface DocumentGridProps {
@@ -14,6 +14,7 @@ interface DocumentGridProps {
     deletingIds: Set<string>;
     onEdit: (doc: NomadDocument) => void;
     onDelete: (id: string) => void;
+    onView: (doc: NomadDocument) => void;
 }
 
 export const DocumentGrid: React.FC<DocumentGridProps> = ({
@@ -24,7 +25,8 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
     setSearchTerm,
     deletingIds,
     onEdit,
-    onDelete
+    onDelete,
+    onView
 }) => {
     
     const filteredDocuments = documents.filter(doc => {
@@ -71,7 +73,11 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {filteredDocuments.map(doc => (
-                    <Card key={doc.id} className="group hover:border-blue-500/30 transition-all relative">
+                    <Card 
+                        key={doc.id} 
+                        onClick={() => onView(doc)}
+                        className="group hover:border-blue-500/30 transition-all relative cursor-pointer"
+                    >
                         <div className="flex justify-between items-start mb-3 relative z-10">
                             <div className={`p-2 rounded-lg ${getIconBgColor(doc.extractedData.type as DocType)}`}>
                                 {getIconForType(doc.extractedData.type)}
@@ -120,34 +126,46 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
                         </div>
                         
                         {/* Preview Section */}
+                        {/* 
+                           If it's TextBased (PDF/DOCX) AND we don't have a thumbnail (previewImage), 
+                           show the FileType placeholder. 
+                           If it's an Image, or we have a thumbnail, show the image.
+                        */}
                         {doc.isTextBased && !doc.previewImage ? (
                             <div className="w-full h-24 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-slate-500 dark:text-slate-600 relative overflow-hidden group-hover:bg-slate-200 dark:group-hover:bg-slate-800 transition-colors">
                                 <FileType className="w-8 h-8 mb-2" />
-                                <span className="text-[10px] uppercase font-bold">{doc.fileName.split('.').pop()}</span>
+                                <span className="text-[10px] uppercase font-bold">{doc.fileName?.split('.').pop() || 'DOC'}</span>
+                                <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <div className="bg-white/90 dark:bg-slate-800/90 text-xs px-2 py-1 rounded-full shadow text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                                        <Eye className="w-3 h-3" /> View
+                                    </div>
+                                </div>
                             </div>
                         ) : (
                             <div className="w-full h-24 rounded-lg overflow-hidden relative bg-slate-100 dark:bg-slate-900 flex items-center justify-center">
-                                {(doc.previewImage || (doc.fileData && !doc.isTextBased)) ? (
-                                    <img 
-                                        src={doc.previewImage || doc.fileData} 
-                                        className="w-full h-full object-cover opacity-80 dark:opacity-50 group-hover:opacity-100 dark:group-hover:opacity-80 transition-opacity" 
-                                        alt="preview"
-                                        onError={(e) => {
-                                            // Fallback if image fails to load
-                                            e.currentTarget.style.display = 'none';
-                                            e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center');
-                                        }}
-                                    />
-                                ) : (
-                                    <div className="text-slate-400 flex flex-col items-center">
-                                        <ImageOff className="w-6 h-6 mb-1 opacity-50" />
-                                        <span className="text-[10px]">No Preview</span>
-                                    </div>
-                                )}
+                                {/* Use previewImage if available, else fileData (only if it's an image URL or base64) */}
+                                <img 
+                                    src={doc.previewImage || doc.fileData} 
+                                    className="w-full h-full object-cover opacity-80 dark:opacity-50 group-hover:opacity-100 dark:group-hover:opacity-80 transition-opacity" 
+                                    alt="preview"
+                                    onError={(e) => {
+                                        // Fallback if image fails to load
+                                        e.currentTarget.style.display = 'none';
+                                        e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center');
+                                        // We can't easily inject the 'No Preview' JSX here, so the parent div will just be empty gray box
+                                    }}
+                                />
                                 
                                 {doc.mimeType === 'image/png' && doc.fileName.toLowerCase().endsWith('.pdf') && (
                                     <div className="absolute top-1 right-1 bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow z-10">PDF</div>
                                 )}
+
+                                {/* Hover Overlay */}
+                                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <div className="bg-white/90 dark:bg-slate-800/90 text-xs px-3 py-1.5 rounded-full shadow text-slate-700 dark:text-slate-200 flex items-center gap-1.5 font-medium transform scale-95 group-hover:scale-100 transition-transform">
+                                        <Eye className="w-3.5 h-3.5" /> View Details
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </Card>

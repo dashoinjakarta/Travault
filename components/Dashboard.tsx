@@ -8,6 +8,7 @@ import { processFile, uploadFileToStorage } from '../services/fileProcessingServ
 import { saveDocumentToSupabase, deleteDocumentFromSupabase, saveManualReminderToSupabase, deleteReminderFromSupabase } from '../services/storageService';
 import { v4 as uuidv4 } from 'uuid';
 import { EditDocumentModal } from './EditDocumentModal';
+import { DocumentViewerModal } from './DocumentViewerModal';
 import { downloadCalendarFile } from '../services/calendarService';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -33,9 +34,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const [isUploading, setIsUploading] = useState(false);
     const [filter, setFilter] = useState<string>('All Documents');
     const [searchTerm, setSearchTerm] = useState('');
+    
+    // Modal States
     const [editingDoc, setEditingDoc] = useState<NomadDocument | null>(null);
-    const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+    const [viewingDoc, setViewingDoc] = useState<NomadDocument | null>(null);
     const [docToDelete, setDocToDelete] = useState<string | null>(null);
+    const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
     
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -188,6 +192,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
     return (
         <div className="space-y-6">
+            {/* --- Modals --- */}
+            
             {editingDoc && (
                 <EditDocumentModal 
                     document={editingDoc} 
@@ -196,7 +202,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 />
             )}
 
-            {/* Custom Delete Confirmation Modal */}
+            {viewingDoc && (
+                <DocumentViewerModal 
+                    document={viewingDoc} 
+                    onClose={() => setViewingDoc(null)} 
+                />
+            )}
+
             {docToDelete && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-sm w-full p-6 border border-slate-200 dark:border-slate-700 transform scale-100 animate-in zoom-in-95 duration-200">
@@ -242,6 +254,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         deletingIds={deletingIds}
                         onEdit={setEditingDoc}
                         onDelete={setDocToDelete}
+                        onView={setViewingDoc}
                     />
                     
                     <TimelineSection documents={documents} />
