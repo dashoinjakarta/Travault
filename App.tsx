@@ -3,7 +3,7 @@ import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { NomadDocument, ViewState, ChatMessage, Reminder } from './types';
 import { Dashboard } from './components/Dashboard';
 import { ChatAssistant } from './components/ChatAssistant';
-import { Bell, Plus, Sun, Moon, LogOut } from 'lucide-react';
+import { Plus, Sun, Moon, LogOut } from 'lucide-react';
 import { loadDocumentsFromSupabase, loadChatHistory, loadManualRemindersFromSupabase } from './services/storageService';
 import { Button } from './components/UI';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -195,7 +195,6 @@ const App: React.FC = () => {
     return (
         <AuthProvider>
             <HashRouter>
-                {/* Theme toggle effect runs inside components, but we want a global init */}
                 <Routes>
                     <Route path="/login" element={<><div className="absolute top-4 right-4"><ThemeToggle /></div><Login /></>} />
                     <Route path="/signup" element={<><div className="absolute top-4 right-4"><ThemeToggle /></div><SignUp /></>} />

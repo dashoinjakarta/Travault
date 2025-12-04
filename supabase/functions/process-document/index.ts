@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { GoogleGenAI, Type } from "npm:@google/genai";
@@ -13,7 +14,7 @@ serve(async (req) => {
   }
 
   try {
-    const { content, mimeType, isText, fileName, userId } = await req.json();
+    const { content, mimeType, isText, fileName, userId, contentHash } = await req.json();
 
     // 1. Initialize Clients
     const supabaseClient = createClient(
@@ -22,8 +23,34 @@ serve(async (req) => {
     );
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY ?? '' });
 
-    // 2. Construct Prompt (Same as Frontend logic)
-    const systemPrompt = `Analyze this travel document. Extract in JSON: title, type, dates, summary, reminders.`;
+    // 2. Duplicate Check (Backup)
+    if (contentHash) {
+        const { data } = await supabaseClient
+            .from('documents')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('content_hash', contentHash)
+            .maybeSingle();
+        
+        if (data) {
+             return new Response(JSON.stringify({ error: "Duplicate document detected" }), {
+                status: 409,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+    }
+
+    // 3. Construct Prompt (Strict Metadata vs Policy)
+    const systemPrompt = `
+    You are an expert Document Intelligence AI.
+    Extract structured data.
+    
+    Goals:
+    1. **Critical Metadata**: Event dates, Expiry dates, Location, Reference Numbers.
+    2. **Policy Separation**:
+       - 'importantDetails': Hard facts (Seat, Gate, Room).
+       - 'policyRules': Soft rules (Luggage, Cancellation).
+    `;
     
     let parts = [];
     if (isText) {
@@ -35,7 +62,7 @@ serve(async (req) => {
       ];
     }
 
-    // 3. Call Gemini
+    // 4. Call Gemini
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: { parts },
@@ -48,7 +75,13 @@ serve(async (req) => {
                 type: { type: Type.STRING },
                 expiryDate: { type: Type.STRING, nullable: true },
                 eventDate: { type: Type.STRING, nullable: true },
+                location: { type: Type.STRING, nullable: true },
+                referenceNumber: { type: Type.STRING, nullable: true },
                 summary: { type: Type.STRING },
+                
+                importantDetails: { type: Type.ARRAY, items: { type: Type.STRING } },
+                policyRules: { type: Type.ARRAY, items: { type: Type.STRING } },
+
                 reminders: { 
                     type: Type.ARRAY, 
                     items: {
@@ -68,7 +101,7 @@ serve(async (req) => {
 
     const data = JSON.parse(response.text);
 
-    // 4. Save to Supabase DB
+    // 5. Save to Supabase DB
     const { data: docData, error: docError } = await supabaseClient
       .from('documents')
       .insert({
@@ -78,29 +111,28 @@ serve(async (req) => {
         summary: data.summary,
         event_date: data.eventDate,
         expiry_date: data.expiryDate,
-        extracted_data: data
+        extracted_data: data,
+        content_hash: contentHash
       })
       .select()
       .single();
 
     if (docError) throw docError;
 
-    // 5. Save Reminders
+    // 6. Save Reminders
     if (data.reminders && data.reminders.length > 0) {
       const remindersPayload = data.reminders.map((r: any) => ({
         document_id: docData.id,
         title: r.title,
-        date: r.date, // Ensure DB expects standard ISO or handle casting
+        date: r.date,
         time: r.time,
         priority: r.priority,
-        source: 'document'
+        source: 'document',
+        user_id: userId
       }));
       
       await supabaseClient.from('reminders').insert(remindersPayload);
     }
-
-    // 6. Generate Embeddings (Optional, if you want to do RAG immediately)
-    // ... embedding logic here ...
 
     return new Response(JSON.stringify({ success: true, document: docData }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

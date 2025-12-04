@@ -1,6 +1,5 @@
-
 import { NomadDocument, Reminder } from "../types";
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 
 const formatICSDate = (dateStr: string, timeStr?: string): string => {
     // Input date is YYYY-MM-DD

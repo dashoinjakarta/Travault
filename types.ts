@@ -1,3 +1,4 @@
+
 export enum DocType {
     VISA = 'Visa',
     PASSPORT = 'Passport',
@@ -34,25 +35,31 @@ export interface RiskAnalysis {
 export interface ExtractedData {
     title: string;
     type: DocType;
+    categoryConfidence: number; // 0-1
     expiryDate?: string; // ISO Date string
     eventDate?: string; // ISO Date string
-    summary: string;
-    relevantPeople?: string[];
+    location?: string; // Airport code, City, Address
+    referenceNumber?: string; // Booking Ref, Ticket #, Policy #
+    summary: string; // High level summary
+    importantDetails: string[]; // Specific metadata (Gate, Seat, etc)
+    policyRules: string[]; // "Soft" info: Luggage rules, Cancellation policy
     reminders: Omit<Reminder, 'id'>[];
     riskAnalysis?: RiskAnalysis;
-    embedding?: number[]; // Vector for RAG
 }
 
 export interface NomadDocument {
     id: string;
+    user_id?: string;
+    contentHash?: string; // SHA-256 fingerprint for duplicate detection
     fileData?: string; // Base64 (image) or Raw Text (Frontend only)
     file_path?: string; // Supabase Storage Path
     mimeType?: string;
     fileName: string;
+    fileSize?: number; // Bytes
     uploadDate: string;
     extractedData: ExtractedData;
     processedReminders?: Reminder[]; 
-    isTextBased?: boolean; // True for txt/docx, False for image/pdf
+    isTextBased?: boolean; // True for txt/docx/pdf-text, False for image/scan
     previewImage?: string; // Optional image preview for PDF/Images
 }
 

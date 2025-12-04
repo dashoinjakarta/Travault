@@ -1,0 +1,15 @@
+
+-- FIX REMINDERS TABLE
+-- Run this in the Supabase SQL Editor to fix the "Could not find the 'user_id' column" error.
+
+-- 1. Add the missing user_id column
+alter table reminders 
+add column if not exists user_id uuid references auth.users(id);
+
+-- 2. Update RLS policy to ensure users can only see their own reminders
+drop policy if exists "Users can CRUD their own reminders" on reminders;
+
+create policy "Users can CRUD their own reminders"
+on reminders for all
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);

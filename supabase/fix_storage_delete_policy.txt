@@ -1,0 +1,25 @@
+-- FIX STORAGE DELETE PERMISSIONS
+-- Copy and run this script in your Supabase SQL Editor.
+
+-- 1. Drop the old or potentially fragile delete policies if they exist
+drop policy if exists "Users can delete their own files" on storage.objects;
+drop policy if exists "Authenticated users can delete" on storage.objects;
+drop policy if exists "Public Delete" on storage.objects;
+
+-- 2. Create the new, robust delete policy
+-- This uses string matching (LIKE) which is more reliable than path parsing functions
+-- for ensuring a user can only delete files in their own folder (auth.uid()).
+
+create policy "Users can delete their own files"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'documents' and
+  name like (auth.uid() || '/%')
+);
+
+-- 3. (Optional) Ensure the bucket is set to private for security
+-- This ensures files are only accessible via signed URLs or the RLS policies
+update storage.buckets
+set public = false
+where id = 'documents';

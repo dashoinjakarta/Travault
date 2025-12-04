@@ -57,6 +57,9 @@ drop policy if exists "Public Delete" on storage.objects;
 drop policy if exists "Authenticated users can upload" on storage.objects;
 drop policy if exists "Authenticated users can view" on storage.objects;
 drop policy if exists "Authenticated users can delete" on storage.objects;
+drop policy if exists "Users can upload their own files" on storage.objects;
+drop policy if exists "Users can view their own files" on storage.objects;
+drop policy if exists "Users can delete their own files" on storage.objects;
 
 -- Insert Policy: Allow upload only to 'documents' bucket in 'user_id/*' path
 create policy "Users can upload their own files"
@@ -77,10 +80,11 @@ using (
 );
 
 -- Delete Policy: Allow deleting only files in 'user_id/*' path
+-- UPDATED: Uses 'LIKE' matching for robustness against path parsing edge cases
 create policy "Users can delete their own files"
 on storage.objects for delete
 to authenticated
 using (
   bucket_id = 'documents' and
-  (storage.foldername(name))[1] = auth.uid()::text
+  name like (auth.uid() || '/%')
 );

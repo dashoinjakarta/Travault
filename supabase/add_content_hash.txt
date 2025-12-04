@@ -1,0 +1,9 @@
+
+-- ADD CONTENT HASH COLUMN
+-- Run this in your Supabase SQL Editor to enable duplicate detection.
+
+alter table documents 
+add column if not exists content_hash text;
+
+-- Optional: Add an index for faster lookups if you have many documents
+create index if not exists idx_documents_content_hash on documents(content_hash);

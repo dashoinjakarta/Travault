@@ -1,9 +1,10 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { NomadDocument, ChatMessage, DocType, Reminder, RiskAnalysis } from "../types";
 
-// Vite replaces process.env.API_KEY with the actual string literal at build time.
-// We access it directly.
-const getApiKey = () => {
+// Vite safe API Key access
+const getApiKey = (): string => {
+    // @ts-ignore
     return process.env.API_KEY || '';
 };
 
@@ -13,50 +14,13 @@ let aiClient: GoogleGenAI | null = null;
 const getAI = () => {
     if (!aiClient) {
         const apiKey = getApiKey();
-        // Initialize with a placeholder if missing to prevent constructor crash, 
-        // calls will simply fail with 401 later which can be handled UI-side.
         aiClient = new GoogleGenAI({ apiKey: apiKey || 'MISSING_API_KEY' });
     }
     return aiClient;
 };
 
-// --- Helpers ---
-
-// Calculate Cosine Similarity between two vectors
-const cosineSimilarity = (vecA: number[], vecB: number[]) => {
-    if (!vecA || !vecB || vecA.length === 0 || vecB.length === 0) return 0;
-    if (vecA.length !== vecB.length) return 0;
-
-    const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
-    const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
-    const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
-    
-    if (magnitudeA === 0 || magnitudeB === 0) return 0;
-    
-    return dotProduct / (magnitudeA * magnitudeB);
-};
-
-// Generate Embedding for text
-export const generateEmbedding = async (text: string): Promise<number[]> => {
-    if (!text || !text.trim()) return [];
-    try {
-        const ai = getAI();
-        const response = await ai.models.embedContent({
-            model: "text-embedding-004",
-            contents: text
-        });
-        return response.embeddings?.[0]?.values || [];
-    } catch (e) {
-        console.error("Embedding generation failed", e);
-        return [];
-    }
-};
-
 // --- Services ---
 
-/**
- * Analyzes a document which can be either an Image (Base64) or Raw Text.
- */
 export const analyzeDocument = async (
     content: string, 
     mimeType: string, 
@@ -64,30 +28,40 @@ export const analyzeDocument = async (
 ): Promise<any> => {
     try {
         const ai = getAI();
-        // Construct prompts based on input type
-        const systemPrompt = `Analyze this travel document. Extract the following information in JSON format:
-        - title: A short, descriptive title (e.g., "Visa for Thailand", "Flight to Bali", "Apartment Lease").
-        - type: The type of document (Visa, Passport, Insurance, Ticket, Contract, Reservation, ID, Other).
-        - expiryDate: The expiration date if applicable (YYYY-MM-DD).
-        - eventDate: The date of the event/travel/start if applicable (YYYY-MM-DD).
-        - summary: A brief summary of key details (max 2 sentences).
-        - reminders: An array of specific action items or reminders derived from the document.
-          Each reminder should have:
-          - title: The reminder text (e.g. "Check-in online", "Pay rent").
-          - date: The date for the reminder (YYYY-MM-DD). Defaults to event/expiry date if specific reminder date isn't found.
-          - time: Optional time string (e.g. "10:30 AM").
-          - priority: "High", "Medium", or "Low".`;
+        const currentDate = new Date().toISOString().split('T')[0];
+        const currentYear = new Date().getFullYear();
+        
+        const systemPrompt = `
+        You are an expert Document Intelligence AI for digital nomads.
+        Your job is to extract structured data from travel documents.
+        
+        CONTEXT:
+        - Current Date: ${currentDate}
+        - Current Year: ${currentYear}
+        - Use this date to resolve relative dates (e.g., "next Tuesday").
+
+        CRITICAL RULES:
+        1. **Date Hallucinations**:
+           - Flight/Event dates are usually in ${currentYear} or ${currentYear + 1}.
+           - If you see a date like "2030", "2035", etc., it is a PASSPORT/ID EXPIRY date. **DO NOT** use it as the 'eventDate'.
+        2. **Time Extraction**: 
+           - You MUST extract the specific Time (Departure, Check-in) for the 'Reminders'.
+           - Format: "HH:MM" (24-hour).
+        3. **Reminders**: 
+           - Create a specific reminder for the *exact time* of the event (e.g. "Flight TG102 Departure").
+           - Create a reminder 2 hours before for "Check-in/Boarding".
+
+        Return valid JSON only.
+        `;
 
         let parts = [];
 
         if (isText) {
-            // Text-only mode (TXT, DOCX)
             parts = [
                 { text: systemPrompt },
                 { text: `DOCUMENT CONTENT:\n${content}` }
             ];
         } else {
-            // Multimodal mode (Image, PDF converted to Image)
             parts = [
                 {
                     inlineData: {
@@ -107,31 +81,41 @@ export const analyzeDocument = async (
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        title: { type: Type.STRING },
+                        title: { type: Type.STRING, description: "Concise title: 'Flight TG102 to BKK' or 'Hotel Hilton Stay'" },
                         type: { 
                             type: Type.STRING, 
-                            enum: [
-                                DocType.VISA, 
-                                DocType.PASSPORT, 
-                                DocType.INSURANCE, 
-                                DocType.TICKET, 
-                                DocType.CONTRACT, 
-                                DocType.RESERVATION, 
-                                DocType.ID,
-                                DocType.OTHER
-                            ] 
+                            enum: Object.values(DocType) 
                         },
-                        expiryDate: { type: Type.STRING, nullable: true },
-                        eventDate: { type: Type.STRING, nullable: true },
+                        categoryConfidence: { type: Type.NUMBER },
                         summary: { type: Type.STRING },
+                        
+                        // Critical Metadata
+                        eventDate: { type: Type.STRING, description: "Date of the flight/event (YYYY-MM-DD). NOT expiry date." },
+                        expiryDate: { type: Type.STRING, description: "Expiration date of document (YYYY-MM-DD)" },
+                        location: { type: Type.STRING },
+                        referenceNumber: { type: Type.STRING },
+                        
+                        // Fact Separation
+                        importantDetails: { 
+                            type: Type.ARRAY, 
+                            items: { type: Type.STRING },
+                            description: "Hard facts: Gate 4, Seat 22A, Boarding 14:00." 
+                        },
+                        policyRules: { 
+                            type: Type.ARRAY, 
+                            items: { type: Type.STRING },
+                            description: "Soft rules: 20kg limit, Non-refundable." 
+                        },
+
+                        // Actions - CRITICAL
                         reminders: { 
                             type: Type.ARRAY, 
                             items: {
                                 type: Type.OBJECT,
                                 properties: {
-                                    title: { type: Type.STRING },
-                                    date: { type: Type.STRING },
-                                    time: { type: Type.STRING, nullable: true },
+                                    title: { type: Type.STRING, description: "E.g. 'Boarding for TG102'" },
+                                    date: { type: Type.STRING, description: "YYYY-MM-DD" },
+                                    time: { type: Type.STRING, description: "HH:MM (24h format). Extract this carefully!" },
                                     priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] },
                                 }
                             } 
@@ -141,9 +125,14 @@ export const analyzeDocument = async (
             }
         });
 
-        // Use the proper property to get text from the response object
         const text = response.text || "{}";
-        return JSON.parse(text);
+        const result = JSON.parse(text);
+
+        // Safety cleanup
+        if (!result.policyRules) result.policyRules = [];
+        if (!result.importantDetails) result.importantDetails = [];
+
+        return result;
 
     } catch (e) {
         console.error("Gemini Analysis Failed", e);
@@ -151,11 +140,6 @@ export const analyzeDocument = async (
     }
 };
 
-/**
- * Chat with your documents using RAG (Retrieval Augmented Generation).
- * We will perform a simple in-memory search here for the prototype, 
- * but in production this uses Supabase Vector Store.
- */
 export const chatWithDocuments = async (
     query: string, 
     documents: NomadDocument[],
@@ -164,37 +148,25 @@ export const chatWithDocuments = async (
 ): Promise<string> => {
     try {
         const ai = getAI();
+        const currentDate = new Date().toISOString().split('T')[0];
         
-        // 1. Prepare Context from Documents (Simple Client-Side RAG)
-        // In a real app, we would embed the query and search Supabase vector store
         const relevantDocs = documents.slice(0, 5).map(d => 
-            `Title: ${d.extractedData.title} (${d.extractedData.type})
-             Date: ${d.extractedData.eventDate || d.extractedData.expiryDate || 'N/A'}
-             Summary: ${d.extractedData.summary}`
+            `[Doc: ${d.extractedData.title}] (${d.extractedData.type})
+             Event Date: ${d.extractedData.eventDate || 'N/A'}
+             Expiry Date: ${d.extractedData.expiryDate || 'N/A'}
+             Location: ${d.extractedData.location || 'N/A'}
+             Details: ${d.extractedData.importantDetails?.join(', ') || ''}
+             Rules: ${d.extractedData.policyRules?.join(', ') || ''}`
         ).join('\n---\n');
 
-        const relevantReminders = reminders.slice(0, 5).map(r => 
-            `Reminder: ${r.title} due on ${r.date} (${r.priority} Priority)`
-        ).join('\n');
+        const context = `USER DOCUMENTS:\n${relevantDocs}`;
 
-        const context = `
-        USER DOCUMENTS:
-        ${relevantDocs}
-
-        USER REMINDERS:
-        ${relevantReminders}
-        `;
-
-        // 2. Chat
-        // We use the model directly with context instead of chat session for RAG simplicity here
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: `
-            System: You are Travault, a helpful AI assistant for digital nomads. 
-            Use the provided context to answer the user's question. 
-            If you don't know the answer based on the context, say so politely.
-            Keep answers concise and helpful.
-
+            System: You are Travault, an intelligent travel assistant.
+            Current Date: ${currentDate}.
+            
             Context:
             ${context}
 
@@ -213,31 +185,17 @@ export const chatWithDocuments = async (
     }
 };
 
-/**
- * Perform a risk analysis on a document.
- */
 export const performRiskAnalysis = async (doc: NomadDocument): Promise<RiskAnalysis> => {
     try {
         const ai = getAI();
         const prompt = `
-        Analyze this document for potential risks for a digital nomad/traveler.
-        Document: ${doc.extractedData.title} (${doc.extractedData.type})
-        Summary: ${doc.extractedData.summary}
+        Analyze this document for travel risks.
+        Doc: ${doc.extractedData.title} (${doc.extractedData.type})
+        Rules: ${doc.extractedData.policyRules?.join('; ') || ''}
         Date: ${doc.extractedData.eventDate || doc.extractedData.expiryDate}
+        Current Date: ${new Date().toISOString().split('T')[0]}
 
-        Identify:
-        1. Ambiguities or missing critical info.
-        2. Date conflicts or tight deadlines (assuming today is ${new Date().toISOString().split('T')[0]}).
-        3. Compliance issues (visa expiry, insurance coverage gaps).
-
-        Return JSON:
-        {
-            "score": number (0-100, 100 is safest),
-            "summary": "Short risk summary",
-            "factors": [
-                { "risk": "Title", "severity": "High"|"Medium"|"Low", "description": "Details" }
-            ]
-        }
+        Identify conflicts, missing requirements, or strict penalties.
         `;
 
         const response = await ai.models.generateContent({
@@ -266,15 +224,9 @@ export const performRiskAnalysis = async (doc: NomadDocument): Promise<RiskAnaly
             }
         });
 
-        const text = response.text || "{}";
-        return JSON.parse(text);
+        return JSON.parse(response.text || "{}");
 
     } catch (e) {
-        console.error("Risk Analysis Failed", e);
-        return {
-            score: 0,
-            summary: "Analysis failed",
-            factors: []
-        };
+        return { score: 0, summary: "Analysis failed", factors: [] };
     }
 };
