@@ -9,7 +9,6 @@ import { v4 as uuidv4 } from 'uuid';
 const pdfLib = pdfjsLib.default || pdfjsLib;
 
 // CRITICAL FIX: Ensure Worker version matches the package.json version (3.11.174)
-// Since we removed the importmap, we are using the local package version.
 try {
     if (pdfLib && pdfLib.GlobalWorkerOptions) {
         pdfLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
@@ -26,6 +25,17 @@ export interface ProcessedFile {
     file: File; // The optimized file object (compressed)
     hash: string; // SHA-256 fingerprint
 }
+
+// --- Helper: Text Sanitizer ---
+const cleanExtractedText = (text: string): string => {
+    // 1. Remove control characters (except newlines/tabs)
+    // 2. Remove replacement characters 
+    // 3. Normalize whitespace
+    return text
+        .replace(/[\x00-\x09\x0B-\x0C\x0E-\x1F\x7F-\x9F]/g, "") // ASCII Control chars
+        .replace(/\uFFFD/g, "") // Replacement char
+        .trim();
+};
 
 // --- 1. Deduplication Logic ---
 
@@ -109,9 +119,16 @@ const extractTextFromPDF = async (file: File): Promise<string | null> => {
         for (let i = 1; i <= maxPages; i++) {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
-            const pageText = textContent.items.map((item: any) => item.str).join(' ');
-            fullText += pageText + '\n';
+            
+            // Join items with a newline to preserve some structure
+            const pageText = textContent.items
+                .map((item: any) => item.str)
+                .join('\n');
+                
+            fullText += pageText + '\n\n';
         }
+
+        fullText = cleanExtractedText(fullText);
 
         // Heuristic: If < 50 chars, it's likely a scan (image inside PDF)
         if (fullText.trim().length < 50) return null;
@@ -178,7 +195,6 @@ export const processFile = async (originalFile: File): Promise<ProcessedFile> =>
             fileToUpload = originalFile; // Keep PDF for storage
         } else {
             // Scan Found -> Send Image to AI (Vision)
-            // If we have a preview, use that base64 as the input for Gemini Vision
             if (preview) {
                 contentForAI = preview.split(',')[1];
                 isText = false;
@@ -208,14 +224,14 @@ export const processFile = async (originalFile: File): Promise<ProcessedFile> =>
     else if (originalFile.name.endsWith('.docx')) {
         const arrayBuffer = await originalFile.arrayBuffer();
         const result = await mammoth.extractRawText({ arrayBuffer });
-        contentForAI = result.value;
+        contentForAI = cleanExtractedText(result.value);
         isText = true;
         mimeTypeForAI = 'text/plain';
         // Fake preview for docx
         preview = ""; 
     }
     else if (originalFile.type === 'text/plain') {
-        contentForAI = await originalFile.text();
+        contentForAI = cleanExtractedText(await originalFile.text());
         isText = true;
         mimeTypeForAI = 'text/plain';
         preview = "";
@@ -225,7 +241,7 @@ export const processFile = async (originalFile: File): Promise<ProcessedFile> =>
         content: contentForAI,
         mimeType: mimeTypeForAI,
         isText,
-        preview, // Can be empty string if failed
+        preview, 
         file: fileToUpload,
         hash
     };

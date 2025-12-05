@@ -1,0 +1,39 @@
+-- ROBUST STORAGE PERMISSIONS FIX
+-- Run this in Supabase SQL Editor to ensure users can delete their files.
+
+-- 1. Drop old/fragile policies
+drop policy if exists "Users can delete their own files" on storage.objects;
+drop policy if exists "Authenticated users can delete" on storage.objects;
+drop policy if exists "Public Delete" on storage.objects;
+
+-- 2. Create Canonical Delete Policy
+-- This uses the 'storage.foldername()' function which is the standard way 
+-- to safely checking if a file is inside a user's folder.
+-- It assumes your files are stored as 'USER_ID/FILENAME'.
+
+create policy "Users can delete their own files"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'documents' and
+  (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- 3. Ensure Upload/Select policies align (Optional refresh)
+drop policy if exists "Users can upload their own files" on storage.objects;
+create policy "Users can upload their own files"
+on storage.objects for insert
+to authenticated
+with check (
+  bucket_id = 'documents' and
+  (storage.foldername(name))[1] = auth.uid()::text
+);
+
+drop policy if exists "Users can view their own files" on storage.objects;
+create policy "Users can view their own files"
+on storage.objects for select
+to authenticated
+using (
+  bucket_id = 'documents' and
+  (storage.foldername(name))[1] = auth.uid()::text
+);

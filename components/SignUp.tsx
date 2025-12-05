@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { supabase } from '../services/supabase';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button, Card, Spinner } from './UI';
+import { Check } from 'lucide-react';
 
 // --- Static Data Lists ---
 
@@ -146,6 +147,8 @@ export const SignUp: React.FC = () => {
     
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [registrationSuccess, setRegistrationSuccess] = useState(false);
+    
     const navigate = useNavigate();
 
     const handleSignUp = async (e: React.FormEvent) => {
@@ -180,7 +183,7 @@ export const SignUp: React.FC = () => {
             if (error) {
                 setError(error.message);
             } else {
-                navigate('/');
+                setRegistrationSuccess(true);
             }
         } catch (err) {
             setError('An unexpected error occurred.');
@@ -189,6 +192,40 @@ export const SignUp: React.FC = () => {
             setLoading(false);
         }
     };
+
+    if (registrationSuccess) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-4 py-12 transition-colors duration-200">
+                <div className="w-full max-w-md space-y-6">
+                    <div className="text-center">
+                        <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent">Travault</h1>
+                    </div>
+                    
+                    <Card className="p-8 space-y-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-center">
+                        <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto">
+                            <Check className="w-8 h-8" />
+                        </div>
+                        
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Check your inbox</h2>
+                            <p className="mt-2 text-slate-600 dark:text-slate-400">
+                                We've sent a confirmation link to <br/>
+                                <span className="font-medium text-slate-900 dark:text-slate-200">{email}</span>
+                            </p>
+                        </div>
+
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Please click the link in the email to verify your account. You won't be able to log in until you verify.
+                        </p>
+                        
+                        <Button variant="blue" className="w-full justify-center" onClick={() => navigate('/login')}>
+                            Go to Login
+                        </Button>
+                    </Card>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-4 py-12 transition-colors duration-200">

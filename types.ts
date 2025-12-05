@@ -1,4 +1,5 @@
 
+
 export enum DocType {
     VISA = 'Visa',
     PASSPORT = 'Passport',
@@ -13,6 +14,7 @@ export enum DocType {
 export interface Reminder {
     id: string;
     title: string;
+    description?: string; // Short one-sentence explanation
     date: string; // ISO Date string
     time?: string;
     priority: 'High' | 'Medium' | 'Low';
@@ -38,6 +40,7 @@ export interface ExtractedData {
     categoryConfidence: number; // 0-1
     expiryDate?: string; // ISO Date string
     eventDate?: string; // ISO Date string
+    eventTime?: string; // HH:MM 24h format
     location?: string; // Airport code, City, Address
     referenceNumber?: string; // Booking Ref, Ticket #, Policy #
     summary: string; // High level summary
@@ -45,13 +48,15 @@ export interface ExtractedData {
     policyRules: string[]; // "Soft" info: Luggage rules, Cancellation policy
     reminders: Omit<Reminder, 'id'>[];
     riskAnalysis?: RiskAnalysis;
+    translatedContent?: string; // The full translated text
+    originalContent?: string; // The raw extracted text (OCR/PDF text)
 }
 
 export interface NomadDocument {
     id: string;
     user_id?: string;
     contentHash?: string; // SHA-256 fingerprint for duplicate detection
-    fileData?: string; // Base64 (image) or Raw Text (Frontend only)
+    fileData?: string; // Base64 (image) or Raw Text (Frontend only) or Signed URL
     file_path?: string; // Supabase Storage Path
     mimeType?: string;
     fileName: string;
@@ -61,6 +66,9 @@ export interface NomadDocument {
     processedReminders?: Reminder[]; 
     isTextBased?: boolean; // True for txt/docx/pdf-text, False for image/scan
     previewImage?: string; // Optional image preview for PDF/Images
+    translatedContent?: string; // Stored translation
+    originalContent?: string; // Stored raw text
+    translationLanguage?: string; // e.g., "Spanish"
 }
 
 export interface ChatMessage {
@@ -81,4 +89,4 @@ export interface UserProfile {
     email: string;
 }
 
-export type ViewState = 'dashboard' | 'documents' | 'reminders' | 'settings';
+export type ViewState = 'dashboard' | 'documents' | 'settings';

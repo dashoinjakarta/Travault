@@ -1,3 +1,4 @@
+
 -- FIX STORAGE DELETE PERMISSIONS
 -- Copy and run this script in your Supabase SQL Editor.
 

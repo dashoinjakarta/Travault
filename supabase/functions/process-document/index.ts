@@ -47,8 +47,15 @@ serve(async (req) => {
     
     Goals:
     1. **Critical Metadata**: Event dates, Expiry dates, Location, Reference Numbers.
-    2. **Policy Separation**:
-       - 'importantDetails': Hard facts (Seat, Gate, Room).
+    2. **Time Extraction (NO GUESSING)**: 
+       - Extract the specific Time (HH:MM) ONLY if explicitly stated in the text.
+       - **CRITICAL**: If NO time is found, return NULL. DO NOT guess.
+    3. **Reminders & Recurring Events**: 
+       - Create reminders with a short, one-sentence description of the action required.
+       - **Priority Rules**: High (Flights/Visas/Legal), Medium (Hotels/Payments), Low (General).
+       - **Recurring**: If the document implies a recurring obligation (e.g., Monthly Rent), generate a SEPARATE reminder for EACH due date (up to 12 months).
+    4. **Policy Separation**:
+       - 'importantDetails': Hard facts (Seat, Gate, Room). Format: "Key: Value".
        - 'policyRules': Soft rules (Luggage, Cancellation).
     `;
     
@@ -75,6 +82,7 @@ serve(async (req) => {
                 type: { type: Type.STRING },
                 expiryDate: { type: Type.STRING, nullable: true },
                 eventDate: { type: Type.STRING, nullable: true },
+                eventTime: { type: Type.STRING, nullable: true },
                 location: { type: Type.STRING, nullable: true },
                 referenceNumber: { type: Type.STRING, nullable: true },
                 summary: { type: Type.STRING },
@@ -88,9 +96,10 @@ serve(async (req) => {
                         type: Type.OBJECT,
                         properties: {
                             title: { type: Type.STRING },
+                            description: { type: Type.STRING, description: "Short description of the task." },
                             date: { type: Type.STRING },
                             time: { type: Type.STRING, nullable: true },
-                            priority: { type: Type.STRING }
+                            priority: { type: Type.STRING, enum: ['High', 'Medium', 'Low'] }
                         }
                     } 
                 }
@@ -124,6 +133,7 @@ serve(async (req) => {
       const remindersPayload = data.reminders.map((r: any) => ({
         document_id: docData.id,
         title: r.title,
+        description: r.description,
         date: r.date,
         time: r.time,
         priority: r.priority,

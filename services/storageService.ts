@@ -31,7 +31,6 @@ export const checkDocumentExistsByHash = async (hash: string): Promise<boolean> 
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return false;
 
-        // Note: 'content_hash' column must exist in Supabase 'documents' table
         const { data, error } = await supabase
             .from('documents')
             .select('id')
@@ -65,20 +64,21 @@ export const saveDocumentToSupabase = async (doc: NomadDocument) => {
                 summary: doc.extractedData.summary,
                 event_date: doc.extractedData.eventDate || null,
                 expiry_date: doc.extractedData.expiryDate || null,
-                extracted_data: doc.extractedData, // Saves 'policyRules' and 'importantDetails'
+                extracted_data: doc.extractedData, // Saves 'policyRules' etc.
                 file_path: doc.file_path || null,
                 risk_analysis: doc.extractedData.riskAnalysis || null,
-                content_hash: doc.contentHash || null
+                content_hash: doc.contentHash || null,
+                translated_content: doc.extractedData.translatedContent || null,
+                original_content: doc.extractedData.originalContent || null,
+                translation_language: doc.translationLanguage || 'English'
             })
             .select()
             .single();
 
         if (docError) {
             console.error("Supabase Insert Error", docError);
-            // Error 42703 is "undefined_column" in Postgres. 
-            // This means the user hasn't run the SQL to add 'content_hash'.
-            if (docError.code === '42703' || docError.message.includes('content_hash')) {
-                throw new Error("Database Error: Missing 'content_hash' column. Please run the 'add_content_hash.txt' SQL script.");
+            if (docError.code === '42703' || docError.message.includes('content_hash') || docError.message.includes('original_content')) {
+                throw new Error("Database Error: Missing columns. Please run 'add_content_hash.txt', 'add_translation_columns.txt' and 'add_original_content.txt'.");
             }
             throw new Error(`Database Error: ${docError.message}`);
         }
@@ -91,6 +91,7 @@ export const saveDocumentToSupabase = async (doc: NomadDocument) => {
                 id: r.id,
                 document_id: doc.id,
                 title: r.title,
+                description: r.description,
                 date: r.date,
                 time: r.time,
                 priority: r.priority,
@@ -101,9 +102,8 @@ export const saveDocumentToSupabase = async (doc: NomadDocument) => {
             const { error: remError } = await supabase.from('reminders').insert(remindersPayload);
             if (remError) {
                 console.error("Reminder Insert Error", remError);
-                // Check for missing column error
                 if (remError.message.includes("Could not find the 'user_id' column") || remError.code === '42703') {
-                     throw new Error("Database Error: 'reminders' table is missing 'user_id' column. Please run the 'fix_reminders_table.txt' SQL script.");
+                     throw new Error("Database Error: 'reminders' table is missing 'user_id' or 'description' column. Run 'fix_reminders_table.txt' and 'add_reminder_description.txt'.");
                 }
                 throw new Error(`Failed to save reminders: ${remError.message}`);
             }
@@ -112,7 +112,6 @@ export const saveDocumentToSupabase = async (doc: NomadDocument) => {
         return dbDoc;
     } catch (e: any) {
         console.error("Failed to save document to Supabase", e);
-        // Ensure we always throw an Error object, not a plain object
         if (e instanceof Error) throw e;
         throw new Error(e?.message || JSON.stringify(e) || "Unknown database error");
     }
@@ -120,9 +119,13 @@ export const saveDocumentToSupabase = async (doc: NomadDocument) => {
 
 export const loadDocumentsFromSupabase = async (): Promise<NomadDocument[]> => {
     try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return [];
+
         const { data, error } = await supabase
             .from('documents')
             .select(`*, reminders (*)`)
+            .eq('user_id', user.id)
             .order('created_at', { ascending: false });
 
         if (error) return [];
@@ -141,8 +144,6 @@ export const loadDocumentsFromSupabase = async (): Promise<NomadDocument[]> => {
             const fileName = d.title || 'document';
             const mimeType = getMimeType(d.file_path || fileName);
             
-            // Determine if it's text based (PDF, Docx, TXT) vs Image based
-            // This helps the UI decide whether to show an iframe or an img tag
             const isTextBased = mimeType === 'application/pdf' || 
                                 mimeType === 'text/plain' || 
                                 mimeType.includes('wordprocessingml') ||
@@ -155,16 +156,22 @@ export const loadDocumentsFromSupabase = async (): Promise<NomadDocument[]> => {
                 mimeType: mimeType,
                 uploadDate: d.created_at,
                 contentHash: d.content_hash,
+                translatedContent: d.translated_content,
+                originalContent: d.original_content,
+                translationLanguage: d.translation_language,
                 extractedData: {
                     ...d.extracted_data,
                     reminders: [], 
                     riskAnalysis: d.risk_analysis,
                     importantDetails: d.extracted_data?.importantDetails || [],
-                    policyRules: d.extracted_data?.policyRules || []
+                    policyRules: d.extracted_data?.policyRules || [],
+                    translatedContent: d.translated_content,
+                    originalContent: d.original_content
                 },
                 processedReminders: (d.reminders || []).map((r: any) => ({
                     id: r.id,
                     title: r.title,
+                    description: r.description,
                     date: r.date,
                     time: r.time,
                     priority: r.priority,
@@ -183,28 +190,88 @@ export const loadDocumentsFromSupabase = async (): Promise<NomadDocument[]> => {
 
 export const deleteDocumentFromSupabase = async (id: string) => {
     try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("User not authenticated");
+
         const { data: doc } = await supabase.from('documents').select('file_path').eq('id', id).maybeSingle();
 
         if (doc && doc.file_path) {
-            // Sanitize path: Remove leading slash if present
             let filePath = doc.file_path;
             
-            // Remove full URL prefix if present
-            if (doc.file_path.includes('/documents/')) {
-                const parts = doc.file_path.split('/documents/');
-                if (parts.length > 1) filePath = parts[1]; 
+            // 1. Robust URL cleaning
+            if (filePath.startsWith('http')) {
+                 try {
+                    const url = new URL(filePath);
+                    const pathParts = url.pathname.split('/');
+                    const docIndex = pathParts.indexOf('documents');
+                    if (docIndex !== -1) {
+                        filePath = pathParts.slice(docIndex + 1).join('/');
+                    }
+                 } catch (e) {
+                 }
             }
             
-            // Decode URL encoding
+            // 2. Remove any URL encoding
             filePath = decodeURIComponent(filePath);
-            
-            // CRITICAL: Supabase Storage paths must NOT start with /
-            if (filePath.startsWith('/')) {
-                filePath = filePath.substring(1);
+
+            // 3. Remove ALL leading slashes
+            filePath = filePath.replace(/^\/+/, '');
+
+            // Ensure we are operating in the user's folder
+            // If the path stored doesn't include user ID but is just filename, prepend it (Heuristic)
+            if (!filePath.startsWith(user.id) && !filePath.includes('/')) {
+                 filePath = `${user.id}/${filePath}`;
             }
 
-            const { error: storageError } = await supabase.storage.from('documents').remove([filePath]);
-            if (storageError) console.warn("Storage delete warning:", storageError);
+            console.log("Attempting to delete storage file:", filePath);
+
+            // Attempt 1: Direct Delete
+            let { data, error: storageError } = await supabase.storage.from('documents').remove([filePath]);
+            
+            // SMART DELETE: If direct delete fails (0 items removed or error), try to find the file
+            if (storageError || (data && data.length === 0)) {
+                console.warn("Direct delete returned 0 items. Attempting Smart Discovery in storage...");
+                
+                // Extract just the filename (e.g. "file.pdf" from "userid/file.pdf")
+                const fileName = filePath.split('/').pop();
+                
+                if (fileName) {
+                    // List all files in the user's folder
+                    const { data: files, error: listError } = await supabase.storage
+                        .from('documents')
+                        .list(user.id);
+
+                    if (!listError && files) {
+                        // Find a file that matches the name
+                        const match = files.find(f => f.name === fileName);
+                        if (match) {
+                            const foundPath = `${user.id}/${match.name}`;
+                            console.log("Smart Discovery found file at:", foundPath);
+                            
+                            // Attempt 2: Delete with the discovered authoritative path
+                            const { error: retryError } = await supabase.storage
+                                .from('documents')
+                                .remove([foundPath]);
+                                
+                            if (retryError) {
+                                console.error("Smart Delete retry failed:", retryError);
+                            } else {
+                                console.log("Smart Delete successful.");
+                                storageError = null; // Clear error since we succeeded
+                            }
+                        } else {
+                            console.warn("Smart Discovery: File not found in listing.");
+                        }
+                    } else {
+                        console.warn("Smart Discovery: Failed to list files.", listError);
+                    }
+                }
+            }
+            
+            if (storageError) {
+                console.error("Storage delete error:", storageError);
+                // We log but continue to DB delete so the UI doesn't get stuck with a zombie record
+            }
         }
 
         const { error: dbError } = await supabase.from('documents').delete().eq('id', id);
@@ -222,16 +289,50 @@ export const deleteDocumentFromSupabase = async (id: string) => {
 export const saveManualReminderToSupabase = async (reminder: Reminder) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { error } = await supabase.from('reminders').upsert({ ...reminder, user_id: user.id });
+    const { error } = await supabase.from('reminders').upsert({ 
+        ...reminder, 
+        user_id: user.id 
+    });
     if (error) console.error("Error saving reminder:", error);
 };
 
+export const updateReminderInSupabase = async (reminder: Reminder) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+        .from('reminders')
+        .update({
+            title: reminder.title,
+            description: reminder.description,
+            date: reminder.date,
+            time: reminder.time,
+            priority: reminder.priority
+        })
+        .eq('id', reminder.id)
+        .eq('user_id', user.id);
+
+    if (error) {
+        console.error("Error updating reminder:", error);
+        throw new Error("Failed to update reminder");
+    }
+};
+
 export const loadManualRemindersFromSupabase = async (): Promise<Reminder[]> => {
-    const { data, error } = await supabase.from('reminders').select('*').eq('source', 'manual');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+        .from('reminders')
+        .select('*')
+        .eq('source', 'manual')
+        .eq('user_id', user.id); 
+        
     if (error) return [];
     return data.map((r: any) => ({
         id: r.id,
         title: r.title,
+        description: r.description,
         date: r.date ? r.date.split('T')[0] : '',
         time: r.time,
         priority: r.priority,

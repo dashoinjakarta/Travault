@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+
+import React, { useState } from 'react';
 import { NomadDocument } from '../types';
-import { X, Download, Calendar, MapPin, AlertCircle, FileText, CheckCircle2, Shield, Loader2 } from 'lucide-react';
-import { Button, Badge } from './UI';
+import { X, Download, Calendar, MapPin, AlertCircle, FileText, CheckCircle2, Shield, Globe, Clock, File } from 'lucide-react';
+import { Button } from './UI';
 import { getIconForType, getIconBgColor } from '../utils/uiHelpers';
 
 interface DocumentViewerModalProps {
@@ -11,177 +12,202 @@ interface DocumentViewerModalProps {
 }
 
 export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ document, onClose }) => {
-    const [textContent, setTextContent] = useState<string | null>(null);
-    const [isLoadingText, setIsLoadingText] = useState(false);
+    // Modes: 'translated', 'text', 'file'
+    const [viewMode, setViewMode] = useState<'translated' | 'text' | 'file'>('translated');
 
     const isUrl = document.fileData?.startsWith('http') || document.fileData?.startsWith('blob:');
     const isPdf = document.mimeType === 'application/pdf' || document.fileName.toLowerCase().endsWith('.pdf');
     const isImage = document.mimeType?.startsWith('image/');
-    const isTextFile = document.isTextBased && !isPdf;
 
-    // Smart Text Fetching: If it's a server URL pointing to a text file, fetch the content.
-    useEffect(() => {
-        if (isTextFile) {
-            if (isUrl) {
-                setIsLoadingText(true);
-                fetch(document.fileData!)
-                    .then(res => {
-                        if (!res.ok) throw new Error("Failed to fetch text");
-                        // Ensure we read as UTF-8
-                        return res.text();
-                    })
-                    .then(text => setTextContent(text))
-                    .catch(err => {
-                        console.error("Error loading text content:", err);
-                        setTextContent("Error loading document content.");
-                    })
-                    .finally(() => setIsLoadingText(false));
-            } else {
-                // If not a URL, the fileData IS the content (e.g. from local upload before refresh)
-                setTextContent(document.fileData || '');
-            }
-        }
-    }, [document, isUrl, isTextFile]);
-
-    // Robust Download Handler with Encoding Fix
-    const handleDownload = async () => {
+    // Download Original (Compressed) File
+    const handleDownloadOriginalFile = async () => {
         try {
-            let blob: Blob;
-            let downloadUrl: string;
-
-            if (isTextFile && textContent) {
-                // FORCE UTF-8 Encoding for text files to fix "nonsense characters" (Mojibake)
-                blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
-                downloadUrl = URL.createObjectURL(blob);
-            } else if (isUrl) {
-                // Fetch binary data for PDFs/Images to avoid browser display issues
-                const response = await fetch(document.fileData!);
-                blob = await response.blob();
-                downloadUrl = URL.createObjectURL(blob);
-            } else {
-                // Fallback for base64 data URIs
+            if (isUrl && document.fileData) {
+                // Attempt to fetch as blob to force a proper "download" action with correct filename
+                const response = await fetch(document.fileData);
+                if (!response.ok) throw new Error("Network response was not ok");
+                
+                const blob = await response.blob();
+                const downloadUrl = URL.createObjectURL(blob);
                 const link = window.document.createElement('a');
-                link.href = document.fileData || '';
+                link.href = downloadUrl;
                 link.download = document.fileName;
                 window.document.body.appendChild(link);
                 link.click();
                 window.document.body.removeChild(link);
-                return;
+                URL.revokeObjectURL(downloadUrl);
+            } else if (document.fileData) {
+                // Base64 or Blob URL
+                const link = window.document.createElement('a');
+                link.href = document.fileData;
+                link.download = document.fileName;
+                window.document.body.appendChild(link);
+                link.click();
+                window.document.body.removeChild(link);
             }
-
-            // Trigger download
-            const link = window.document.createElement('a');
-            link.href = downloadUrl;
-            link.download = document.fileName;
-            window.document.body.appendChild(link);
-            link.click();
-            window.document.body.removeChild(link);
-            
-            // Cleanup
-            setTimeout(() => URL.revokeObjectURL(downloadUrl), 100);
-
         } catch (e) {
-            console.error("Download failed:", e);
-            alert("Failed to download file.");
+            console.warn("Direct download failed (likely CORS), falling back to open in tab:", e);
+            // Fallback: If fetch fails (CORS), just open the URL. User can save from there.
+            if (isUrl && document.fileData) {
+                window.open(document.fileData, '_blank');
+            } else {
+                alert("Download failed. Please try again.");
+            }
         }
     };
-    
-    // Helper to determine render mode
-    const renderPreviewContent = () => {
-        // 1. Loading State
-        if (isLoadingText) {
-            return (
-                <div className="flex flex-col items-center justify-center text-slate-500">
-                    <Loader2 className="w-8 h-8 animate-spin mb-2" />
-                    <p>Loading document...</p>
-                </div>
-            );
-        }
 
-        // 2. Text Content (Fetched or Local)
-        if (isTextFile && textContent) {
-            return (
-                <div className="w-full h-full bg-white p-8 shadow-sm overflow-auto font-mono text-sm whitespace-pre-wrap leading-relaxed text-slate-800">
-                    {textContent}
-                </div>
-            );
-        }
+    // Download Text Content (Translated or Original)
+    const handleDownloadText = (type: 'translated' | 'original') => {
+        const content = type === 'translated' ? document.translatedContent : document.originalContent;
+        const prefix = type === 'translated' ? 'Translated' : 'Original_Text';
+        
+        if (!content) return;
+        
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = window.document.createElement('a');
+        link.href = url;
+        link.download = `${prefix}_${document.fileName}.txt`;
+        window.document.body.appendChild(link);
+        link.click();
+        window.document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+    };
 
-        // 3. URLs (PDF / Image)
-        if (isUrl) {
-            if (isPdf) {
+    const renderMainContent = () => {
+        // Mode 1: Translated View
+        if (viewMode === 'translated') {
+            if (document.translatedContent) {
                 return (
-                    <iframe 
-                        src={document.fileData} 
-                        className="w-full h-full rounded-lg shadow-sm bg-white" 
-                        title="Document Preview"
-                    />
+                    <div className="w-full h-full bg-white p-8 shadow-sm overflow-auto font-serif text-base leading-relaxed text-slate-800">
+                        <div className="mb-6 border-b border-slate-100 pb-4">
+                            <h3 className="font-bold text-slate-400 text-xs uppercase tracking-widest mb-1">Translated Content</h3>
+                            <div className="text-blue-600 font-medium flex items-center gap-2">
+                                <Globe className="w-4 h-4" /> {document.translationLanguage || 'English'}
+                            </div>
+                        </div>
+                        <div className="whitespace-pre-wrap">
+                            {document.translatedContent}
+                        </div>
+                    </div>
                 );
             }
-            if (isImage) {
-                return (
-                     <img 
-                        src={document.fileData} 
-                        alt="Document" 
-                        className="max-w-full max-h-full object-contain rounded-lg shadow-md"
-                    />
-                );
-            }
-            // Fallback for unknown types loaded via URL
             return (
-                <div className="text-center text-slate-500">
-                    <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                    <p>Preview not available for this file type.</p>
-                    <Button variant="secondary" className="mt-4" onClick={handleDownload}>
-                        Download to View
-                    </Button>
+                <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                    <Globe className="w-12 h-12 mb-4 opacity-20" />
+                    <p>No translation available.</p>
                 </div>
             );
         }
 
-        // 4. Base64 Fallbacks (Local Uploads)
-        if (document.fileData?.startsWith('data:image')) {
+        // Mode 2: Original Extracted Text View
+        if (viewMode === 'text') {
+            if (document.originalContent) {
+                 return (
+                    <div className="w-full h-full bg-white p-8 shadow-sm overflow-auto font-mono text-xs whitespace-pre-wrap text-slate-600">
+                        <div className="mb-6 border-b border-slate-100 pb-4">
+                            <h3 className="font-bold text-slate-400 text-xs uppercase tracking-widest mb-1">Original Extracted Text</h3>
+                        </div>
+                        {document.originalContent}
+                    </div>
+                );
+            }
              return (
-                 <img 
-                    src={document.fileData} 
-                    alt="Document" 
-                    className="max-w-full max-h-full object-contain rounded-lg shadow-md"
-                />
+                <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                    <FileText className="w-12 h-12 mb-4 opacity-20" />
+                    <p>No text extracted.</p>
+                </div>
             );
         }
 
-        return (
-            <div className="text-center text-slate-500">
-                <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p>No preview data available.</p>
-            </div>
-        );
+        // Mode 3: Original File (Visual) View
+        if (viewMode === 'file') {
+            if (isUrl) {
+                if (isPdf) {
+                    return <iframe src={document.fileData} className="w-full h-full bg-white" title="Original" />;
+                }
+                if (isImage) {
+                    return <div className="w-full h-full flex items-center justify-center bg-slate-900"><img src={document.fileData} alt="Original" className="max-w-full max-h-full object-contain" /></div>;
+                }
+            }
+            // Base64 Image Fallback
+            if (document.fileData?.startsWith('data:image')) {
+                 return <div className="w-full h-full flex items-center justify-center bg-slate-900"><img src={document.fileData} alt="Original" className="max-w-full max-h-full object-contain" /></div>;
+            }
+
+            return <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                <File className="w-12 h-12 mb-4 opacity-20" />
+                <p>Preview not available for this file type.</p>
+                <Button variant="ghost" onClick={handleDownloadOriginalFile} className="mt-4">Download to View</Button>
+            </div>;
+        }
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 w-full max-w-6xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row border border-slate-200 dark:border-slate-700">
                 
-                {/* --- LEFT COLUMN: FILE PREVIEW --- */}
+                {/* --- LEFT COLUMN: CONTENT PREVIEW --- */}
                 <div className="w-full md:w-1/2 lg:w-3/5 bg-slate-100 dark:bg-slate-950/50 flex flex-col border-b md:border-b-0 md:border-r border-slate-200 dark:border-slate-700 relative group">
                     
-                    {/* Toolbar */}
+                    {/* Top Toolbar */}
                     <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-10 pointer-events-none">
-                        <Badge color="bg-black/50 text-white backdrop-blur-md border border-white/10 shadow-sm pointer-events-auto">
-                            {document.fileName}
-                        </Badge>
-                        <button 
-                            onClick={handleDownload}
-                            className="bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 p-2 rounded-full shadow-lg hover:bg-blue-600 hover:text-white transition-all pointer-events-auto cursor-pointer"
-                            title="Download Original"
-                        >
-                            <Download className="w-5 h-5" />
-                        </button>
+                        <div className="flex gap-2 pointer-events-auto bg-slate-100/80 dark:bg-slate-900/80 p-1 rounded-full backdrop-blur-md shadow-sm">
+                            <button 
+                                onClick={() => setViewMode('translated')}
+                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'translated' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                Translation
+                            </button>
+                             <button 
+                                onClick={() => setViewMode('text')}
+                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'text' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                Original Text
+                            </button>
+                            <button 
+                                onClick={() => setViewMode('file')}
+                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${viewMode === 'file' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                Original File
+                            </button>
+                        </div>
+
+                        {/* Download Buttons Contextual */}
+                        <div className="flex gap-2 pointer-events-auto">
+                             {viewMode === 'translated' && document.translatedContent && (
+                                <button 
+                                    onClick={() => handleDownloadText('translated')}
+                                    className="bg-white/90 text-slate-700 p-2 rounded-full shadow-lg hover:bg-blue-600 hover:text-white transition-all"
+                                    title="Download Translation"
+                                >
+                                    <Globe className="w-5 h-5" />
+                                </button>
+                            )}
+                            {viewMode === 'text' && document.originalContent && (
+                                <button 
+                                    onClick={() => handleDownloadText('original')}
+                                    className="bg-white/90 text-slate-700 p-2 rounded-full shadow-lg hover:bg-blue-600 hover:text-white transition-all"
+                                    title="Download Original Text"
+                                >
+                                    <FileText className="w-5 h-5" />
+                                </button>
+                            )}
+                            <button 
+                                onClick={handleDownloadOriginalFile}
+                                className="bg-white/90 text-slate-700 p-2 rounded-full shadow-lg hover:bg-blue-600 hover:text-white transition-all"
+                                title="Download Original File"
+                            >
+                                <Download className="w-5 h-5" />
+                            </button>
+                        </div>
                     </div>
 
                     {/* Content Renderer */}
-                    <div className="flex-1 overflow-auto flex items-center justify-center p-4">
-                        {renderPreviewContent()}
+                    <div className="flex-1 overflow-auto flex items-center justify-center bg-slate-200/50 dark:bg-slate-900/50 p-4 pt-16">
+                        <div className="w-full h-full shadow-lg rounded-lg overflow-hidden bg-white">
+                            {renderMainContent()}
+                        </div>
                     </div>
                 </div>
 
@@ -211,7 +237,6 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ docume
                     {/* Scrollable Content */}
                     <div className="flex-1 overflow-y-auto p-6 space-y-8 no-scrollbar">
                         
-                        {/* Summary Block */}
                         <div className="bg-blue-50 dark:bg-blue-900/10 rounded-xl p-4 border border-blue-100 dark:border-blue-900/30">
                             <h3 className="text-sm font-bold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2">
                                 <Shield className="w-4 h-4" /> AI Summary
@@ -221,51 +246,72 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ docume
                             </p>
                         </div>
 
-                        {/* Key Metadata Grid */}
                         <div className="grid grid-cols-2 gap-4">
                             <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
                                 <div className="text-xs text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
-                                    <Calendar className="w-3 h-3" /> Event Date
+                                    <Calendar className="w-3 h-3" /> Event Date & Time
                                 </div>
-                                <div className="font-semibold text-slate-900 dark:text-slate-100">
+                                <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
                                     {document.extractedData.eventDate || 'N/A'}
                                 </div>
+                                {document.extractedData.eventTime && (
+                                    <div className="flex items-center gap-1.5 mt-1 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                                        <Clock className="w-3 h-3 text-blue-500" />
+                                        {document.extractedData.eventTime}
+                                    </div>
+                                )}
                             </div>
                             <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
                                 <div className="text-xs text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
                                     <MapPin className="w-3 h-3" /> Location
                                 </div>
-                                <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                <div className="font-medium text-slate-900 dark:text-slate-100 text-xs break-words">
                                     {document.extractedData.location || 'N/A'}
                                 </div>
                             </div>
                         </div>
 
-                        {/* Crucial Details */}
                         <div>
                             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Crucial Details
                             </h3>
-                            {document.extractedData.importantDetails && document.extractedData.importantDetails.length > 0 ? (
-                                <ul className="space-y-2">
-                                    {document.extractedData.importantDetails.map((detail, idx) => (
-                                        <li key={idx} className="flex items-start gap-3 text-sm text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 shadow-sm">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
-                                            {detail}
-                                        </li>
-                                    ))}
+                            {document.extractedData.importantDetails?.length > 0 ? (
+                                <ul className="space-y-3">
+                                    {document.extractedData.importantDetails.map((detail, idx) => {
+                                        // Try to split "Key: Value" or "Key - Value"
+                                        const splitMatch = detail.match(/^([^:-]+)[:\-\s]+(.*)$/);
+                                        
+                                        if (splitMatch) {
+                                            const [_, label, value] = splitMatch;
+                                            return (
+                                                <li key={idx} className="flex flex-col sm:flex-row rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-sm">
+                                                    <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-semibold text-slate-700 dark:text-slate-300 sm:w-1/3 border-b sm:border-b-0 sm:border-r border-slate-200 dark:border-slate-700 flex items-center">
+                                                        {label.trim()}
+                                                    </div>
+                                                    <div className="bg-white dark:bg-slate-900/50 px-3 py-2 text-slate-600 dark:text-slate-300 sm:w-2/3 break-words">
+                                                        {value.trim()}
+                                                    </div>
+                                                </li>
+                                            );
+                                        }
+
+                                        // Fallback for non-structured strings
+                                        return (
+                                            <li key={idx} className="flex items-start gap-3 text-sm text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 shadow-sm">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+                                                {detail}
+                                            </li>
+                                        );
+                                    })}
                                 </ul>
-                            ) : (
-                                <p className="text-sm text-slate-500 italic">No specific details extracted.</p>
-                            )}
+                            ) : <p className="text-sm text-slate-500 italic">No specific details extracted.</p>}
                         </div>
 
-                        {/* Policy Rules */}
                         <div>
                             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">
                                 <AlertCircle className="w-4 h-4 text-amber-500" /> Policy & Rules
                             </h3>
-                            {document.extractedData.policyRules && document.extractedData.policyRules.length > 0 ? (
+                            {document.extractedData.policyRules?.length > 0 ? (
                                 <ul className="space-y-2">
                                     {document.extractedData.policyRules.map((rule, idx) => (
                                         <li key={idx} className="flex items-start gap-3 text-sm text-slate-600 dark:text-slate-300 bg-amber-50/50 dark:bg-amber-900/10 p-3 rounded-lg border border-amber-100 dark:border-amber-900/30">
@@ -274,33 +320,14 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ docume
                                         </li>
                                     ))}
                                 </ul>
-                            ) : (
-                                <p className="text-sm text-slate-500 italic">No specific policies found.</p>
-                            )}
+                            ) : <p className="text-sm text-slate-500 italic">No specific policies found.</p>}
                         </div>
-                        
-                        {/* Risk Analysis (If exists) */}
-                        {document.extractedData.riskAnalysis && (
-                             <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                                <div className="flex justify-between items-center mb-2">
-                                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Risk Assessment</h3>
-                                    <Badge color={document.extractedData.riskAnalysis.score > 80 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}>
-                                        Safety Score: {document.extractedData.riskAnalysis.score}/100
-                                    </Badge>
-                                </div>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{document.extractedData.riskAnalysis.summary}</p>
-                            </div>
-                        )}
-
                     </div>
 
-                    {/* Footer Actions */}
                     <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-end gap-3">
-                         <div className="w-full sm:w-auto">
-                            <Button variant="primary" className="w-full sm:w-auto" onClick={handleDownload}>
-                                <Download className="w-4 h-4" /> Download Original
-                            </Button>
-                        </div>
+                        <Button variant="primary" className="w-full sm:w-auto" onClick={handleDownloadOriginalFile}>
+                            <Download className="w-4 h-4" /> Download Original File
+                        </Button>
                     </div>
                 </div>
             </div>

@@ -1,0 +1,49 @@
+
+-- FORCE SECURITY LOCKDOWN
+-- Run this script in your Supabase SQL Editor to fix data leaks where users can see each other's data.
+
+-- 1. DROP INSECURE POLICIES
+-- We drop any policy that might be granting public access or "all users" access.
+drop policy if exists "Enable all access for all users" on documents;
+drop policy if exists "Enable all access for all users" on reminders;
+drop policy if exists "Enable all access for all users" on document_chunks;
+drop policy if exists "Public Access" on storage.objects;
+
+-- 2. ENABLE ROW LEVEL SECURITY (Just in case it wasn't enabled)
+alter table documents enable row level security;
+alter table reminders enable row level security;
+alter table document_chunks enable row level security;
+
+-- 3. RE-APPLY STRICT POLICIES
+
+-- Documents: Only owners can view/edit/delete
+drop policy if exists "Users can CRUD their own documents" on documents;
+create policy "Users can CRUD their own documents"
+on documents for all
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+-- Reminders: Only owners can view/edit/delete
+drop policy if exists "Users can CRUD their own reminders" on reminders;
+create policy "Users can CRUD their own reminders"
+on reminders for all
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+-- Document Chunks: Only owners of the parent document can view/edit
+drop policy if exists "Users can CRUD their own document chunks" on document_chunks;
+create policy "Users can CRUD their own document chunks"
+on document_chunks for all
+to authenticated
+using (
+  document_id in (
+    select id from documents where user_id = auth.uid()
+  )
+)
+with check (
+  document_id in (
+    select id from documents where user_id = auth.uid()
+  )
+);

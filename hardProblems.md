@@ -45,5 +45,6 @@ When a user deleted a document, the record was removed from the dashboard/databa
 3.  **RLS Policy Fragility:** The original RLS policy used `storage.foldername(name)`, which extracts path segments. While technically correct, it can sometimes be brittle depending on how the file path string is formatted in the delete request.
 
 ### The Solution
-*   **Path Sanitization:** In `storageService.ts`, we added strict logic to strip any leading slashes (`/`) from the file path before sending it to the Supabase SDK.
-*   **Robust SQL Policy:** We updated the Storage RLS Delete policy to use a string pattern match (`name LIKE auth.uid() || '/%'`) instead of the helper function. This explicitly allows deletion of any file that starts with the user's ID folder, which is more predictable and robust.
+*   **Robust Path Sanitization:** In `storageService.ts`, we completely overhauled the path logic. We now explicitly handle full URLs (stripping domain/bucket), decode URI components, and regex-remove *all* leading slashes. This ensures the path sent to `remove()` is always the clean `userId/filename` format.
+*   **Canonical SQL Policy:** We updated the Storage RLS Delete policy to use the standard `(storage.foldername(name))[1] = auth.uid()::text` check. This is more reliable than text pattern matching (`LIKE`) and ensures users can strictly only delete files in their own folder.
+*   **Explicit Error Reporting:** We updated the frontend to `alert()` the user if the storage delete operation fails, rather than failing silently. This ensures we know immediately if permission issues persist.

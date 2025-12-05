@@ -1,0 +1,6 @@
+
+-- Run this in Supabase SQL Editor to enable storing translations
+
+alter table documents 
+add column if not exists translated_content text,
+add column if not exists translation_language text;

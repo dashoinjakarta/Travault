@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { NomadDocument, ViewState, ChatMessage, Reminder } from './types';
@@ -19,6 +20,19 @@ const AuthenticatedApp: React.FC = () => {
     const [manualReminders, setManualReminders] = useState<Reminder[]>([]);
     const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+
+    // Chat State Lifted Up
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [chatInitialMessage, setChatInitialMessage] = useState('');
+
+    const handleOpenChat = (message?: string) => {
+        if (message) setChatInitialMessage(message);
+        setIsChatOpen(true);
+    };
+
+    const toggleChat = () => {
+        setIsChatOpen(prev => !prev);
+    };
 
     // Initial Data Load
     useEffect(() => {
@@ -68,7 +82,7 @@ const AuthenticatedApp: React.FC = () => {
                                 <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 dark:from-blue-400 dark:to-blue-600 bg-clip-text text-transparent">Travault</span>
                             </div>
                             <div className="hidden md:flex items-baseline space-x-4">
-                                {['Dashboard', 'Documents', 'Reminders'].map((item) => (
+                                {['Dashboard', 'Documents'].map((item) => (
                                     <button
                                         key={item}
                                         onClick={() => setView(item.toLowerCase() as ViewState)}
@@ -116,12 +130,13 @@ const AuthenticatedApp: React.FC = () => {
 
             {/* Main Content Area */}
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                {view === 'dashboard' || view === 'documents' || view === 'reminders' ? (
+                {view === 'dashboard' || view === 'documents' ? (
                      <Dashboard 
                         documents={documents} 
                         setDocuments={setDocuments} 
                         manualReminders={manualReminders}
                         setManualReminders={setManualReminders}
+                        onOpenChat={handleOpenChat}
                      />
                 ) : (
                     <div className="text-center py-20">
@@ -136,6 +151,9 @@ const AuthenticatedApp: React.FC = () => {
                 history={chatHistory} 
                 setHistory={setChatHistory} 
                 manualReminders={manualReminders}
+                isOpen={isChatOpen}
+                onClose={toggleChat}
+                initialMessage={chatInitialMessage}
             />
         </div>
     );

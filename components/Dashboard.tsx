@@ -1,11 +1,12 @@
 
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { NomadDocument, Reminder } from '../types';
 import { Button } from './UI';
 import { Trash2 } from 'lucide-react';
 import { analyzeDocument } from '../services/geminiService';
 import { processFile, uploadFileToStorage } from '../services/fileProcessingService';
-import { saveDocumentToSupabase, deleteDocumentFromSupabase, saveManualReminderToSupabase, deleteReminderFromSupabase } from '../services/storageService';
+import { saveDocumentToSupabase, deleteDocumentFromSupabase, saveManualReminderToSupabase, deleteReminderFromSupabase, updateReminderInSupabase } from '../services/storageService';
+import { getUserProfile } from '../services/authService';
 import { v4 as uuidv4 } from 'uuid';
 import { EditDocumentModal } from './EditDocumentModal';
 import { DocumentViewerModal } from './DocumentViewerModal';
@@ -24,16 +25,19 @@ interface DashboardProps {
     setDocuments: React.Dispatch<React.SetStateAction<NomadDocument[]>>;
     manualReminders: Reminder[];
     setManualReminders: React.Dispatch<React.SetStateAction<Reminder[]>>;
+    onOpenChat: (message?: string) => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ 
     documents, setDocuments, 
-    manualReminders, setManualReminders 
+    manualReminders, setManualReminders,
+    onOpenChat
 }) => {
     const { user } = useAuth();
     const [isUploading, setIsUploading] = useState(false);
     const [filter, setFilter] = useState<string>('All Documents');
     const [searchTerm, setSearchTerm] = useState('');
+    const [userLanguage, setUserLanguage] = useState('English');
     
     // Modal States
     const [editingDoc, setEditingDoc] = useState<NomadDocument | null>(null);
@@ -42,6 +46,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
     
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        const fetchLang = async () => {
+            const profile = await getUserProfile();
+            if (profile?.language) {
+                setUserLanguage(profile.language);
+            }
+        };
+        fetchLang();
+    }, []);
 
     // --- Computed Data ---
     const allReminders = useMemo(() => {
@@ -72,16 +86,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
         setIsUploading(true);
         try {
             // 1. Process local file (Compress, Hash, Extract Text)
-            // Duplicate check happens inside UploadSection wrapper before this, 
-            // but we get the hash here to store it.
             const { content, mimeType, isText, preview, file: processedFile, hash } = await processFile(file);
 
             // 2. Upload to Supabase Storage
             const publicUrl = await uploadFileToStorage(processedFile, user.id);
 
-            // 3. Analyze with AI
+            // 3. Analyze with AI & Translate
             try {
-                const extractedData = await analyzeDocument(content, mimeType, isText);
+                const extractedData = await analyzeDocument(content, mimeType, isText, userLanguage);
                 const docId = uuidv4();
                 
                 // Process reminders
@@ -92,6 +104,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     source: 'document'
                 }));
 
+                // DETERMINISTIC ORIGINAL CONTENT LOGIC:
+                // If isText is true, 'content' variable holds the actual text extracted by PDF.js/Mammoth.
+                // We use that directly instead of relying on AI to echo it back.
+                // If isText is false (Image), 'content' is Base64. We rely on AI's OCR result (extractedData.originalContent).
+                const finalOriginalContent = isText ? content : extractedData.originalContent;
+
                 const newDoc: NomadDocument = {
                     id: docId,
                     contentHash: hash,
@@ -100,10 +118,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     fileName: file.name,
                     mimeType: mimeType,
                     uploadDate: new Date().toISOString(),
-                    extractedData: extractedData,
+                    extractedData: {
+                        ...extractedData,
+                        originalContent: finalOriginalContent // Override with robust logic
+                    },
                     processedReminders: processedReminders,
                     isTextBased: isText,
-                    previewImage: preview 
+                    previewImage: preview,
+                    translatedContent: extractedData.translatedContent,
+                    translationLanguage: userLanguage,
+                    originalContent: finalOriginalContent // Ensure top-level access
                 };
                 
                 // 4. Persist to Supabase Database
@@ -112,7 +136,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 setDocuments(prev => [newDoc, ...prev]);
             } catch (err: any) {
                 console.error(err);
-                // Handle both Error objects and strings/other types
                 const errorMessage = err instanceof Error ? err.message : String(err || "Failed to analyze document.");
                 alert(errorMessage);
             } finally {
@@ -169,6 +192,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
         setManualReminders(prev => [...prev, reminder]);
     };
 
+    const handleUpdateReminder = async (updated: Reminder) => {
+        try {
+            await updateReminderInSupabase(updated);
+            if (updated.source === 'manual') {
+                setManualReminders(prev => prev.map(r => r.id === updated.id ? updated : r));
+            } else {
+                // Update inside document
+                const doc = documents.find(d => d.id === updated.docId);
+                if (doc) {
+                    const newReminders = doc.processedReminders?.map(r => r.id === updated.id ? updated : r) || [];
+                    const newDoc = { ...doc, processedReminders: newReminders };
+                    setDocuments(prev => prev.map(d => d.id === doc.id ? newDoc : d));
+                }
+            }
+        } catch (e) {
+            alert("Failed to update reminder");
+        }
+    };
+
     const handleDeleteReminder = async (id: string, source?: string, docId?: string) => {
         if (source === 'manual') {
             await deleteReminderFromSupabase(id);
@@ -184,6 +226,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 setDocuments(prev => prev.map(d => d.id === docId ? updatedDoc : d));
             }
         }
+    };
+
+    const handleViewDocument = (docId: string) => {
+        const doc = documents.find(d => d.id === docId);
+        if (doc) setViewingDoc(doc);
     };
 
     const handleExportCalendar = () => {
@@ -257,7 +304,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         onView={setViewingDoc}
                     />
                     
-                    <TimelineSection documents={documents} />
+                    <TimelineSection documents={documents} onView={setViewingDoc} />
                 </div>
 
                 {/* --- Right Column (Sidebar) --- */}
@@ -266,7 +313,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         reminders={allReminders}
                         onAddReminder={handleAddReminder}
                         onDeleteReminder={handleDeleteReminder}
+                        onUpdateReminder={handleUpdateReminder}
                         onExportCalendar={handleExportCalendar}
+                        onViewDocument={handleViewDocument}
+                        onAskAI={onOpenChat}
                     />
                 </div>
             </div>

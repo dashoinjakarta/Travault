@@ -1,14 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button, Card, Spinner } from './UI';
+import { useAuth } from '../contexts/AuthContext';
 
 export const Login: React.FC = () => {
+    const { user } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const navigate = useNavigate();
+
+    // Reactive Redirect: Wait for the AuthContext to actually update
+    useEffect(() => {
+        if (user) {
+            navigate('/');
+        }
+    }, [user, navigate]);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -23,13 +32,14 @@ export const Login: React.FC = () => {
 
             if (error) {
                 setError(error.message);
-            } else {
-                navigate('/');
-            }
+                setLoading(false);
+            } 
+            // Do not navigate manually here. 
+            // The AuthContext listener will update 'user', triggering the useEffect above.
+            
         } catch (err) {
             setError('An unexpected error occurred.');
             console.error(err);
-        } finally {
             setLoading(false);
         }
     };

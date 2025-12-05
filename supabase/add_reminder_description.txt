@@ -1,0 +1,5 @@
+
+-- Run this in Supabase SQL Editor to enable reminder descriptions
+
+alter table reminders 
+add column if not exists description text;
